@@ -2,7 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -18,12 +21,18 @@ import (
 
 // User — структура ответа профиля
 type User struct {
-	ID       int    `json:"id"`
-	FullName string `json:"full_name"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
-	Role     string `json:"role"`
-	ClinicID *int   `json:"clinic_id"`
+	ID             int    `json:"id"`
+	FullName       string `json:"full_name"`
+	Email          string `json:"email"`
+	Phone          string `json:"phone"`
+	Role           string `json:"role"`
+	ClinicID       *int   `json:"clinic_id"`
+	Specialization string `json:"specialization"`
+}
+
+// Простая структура для подсчёта элементов из других сервисов
+type countResp struct {
+	Count int `json:"count"`
 }
 
 // Секрет для подписи JWT (лучше хранить в ENV)
@@ -66,6 +75,22 @@ func extractUserID(c *gin.Context) (int, error) {
 	}
 }
 
+// helper делает GET-запрос к заданному URL и возвращает поле "count" из JSON-ответа
+func fetchCount(url string) int {
+	resp, err := http.Get(url)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var cr countResp
+	body, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(body, &cr)
+	return cr.Count
+}
+
 func main() {
 	// Подключение к БД
 	dbURL := os.Getenv("DATABASE_URL")
@@ -83,12 +108,13 @@ func main() {
 	// Регистрация
 	r.POST("/register", func(c *gin.Context) {
 		var req struct {
-			FullName string `json:"full_name"`
-			Email    string `json:"email"`
-			Password string `json:"password"`
-			Phone    string `json:"phone"`
-			Role     string `json:"role"`
-			ClinicID *int   `json:"clinic_id"`
+			FullName       string `json:"full_name"`
+			Email          string `json:"email"`
+			Password       string `json:"password"`
+			Phone          string `json:"phone"`
+			Role           string `json:"role"`
+			ClinicID       *int   `json:"clinic_id"`
+			Specialization string `json:"specialization"`
 		}
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
@@ -101,9 +127,9 @@ func main() {
 		}
 		var id int
 		err = db.QueryRow(
-			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id)
-			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
+			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id, specialization)
+             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID, req.Specialization,
 		).Scan(&id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при регистрации"})
@@ -147,7 +173,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"token": tokenStr})
 	})
 
-	// Общий хендлер получения профиля, теперь без X-User-ID
+	// Общий хендлер получения профиля
 	getProfile := func(c *gin.Context) {
 		uid, err := extractUserID(c)
 		if err != nil {
@@ -156,18 +182,60 @@ func main() {
 		}
 		var u User
 		err = db.QueryRow(
-			`SELECT id, full_name, email, phone, role, clinic_id FROM users WHERE id = $1`, uid,
-		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID)
+			`SELECT id, full_name, email, phone, role, clinic_id, specialization
+             FROM users WHERE id = $1`, uid,
+		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID, &u.Specialization)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "пользователь не найден"})
 			return
 		}
 		c.JSON(http.StatusOK, u)
 	}
-
-	// Профиль по /me и /profile
 	r.GET("/me", getProfile)
 	r.GET("/profile", getProfile)
+
+	// Реальная логика для /admin/stats
+	r.GET("/admin/stats", func(c *gin.Context) {
+		uid, err := extractUserID(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Узнаём clinic_id админа
+		var clinicID sql.NullInt64
+		if err := db.QueryRow(
+			`SELECT clinic_id FROM users WHERE id = $1`, uid,
+		).Scan(&clinicID); err != nil || !clinicID.Valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "не задана клиника для этого пользователя"})
+			return
+		}
+
+		// Считаем пациентов и врачей
+		var patients, doctors int
+		db.QueryRow(
+			`SELECT COUNT(*) FROM users WHERE role = 'patient' AND clinic_id = $1`,
+			clinicID.Int64,
+		).Scan(&patients)
+		db.QueryRow(
+			`SELECT COUNT(*) FROM users WHERE role = 'doctor' AND clinic_id = $1`,
+			clinicID.Int64,
+		).Scan(&doctors)
+
+		// Считаем записи и платежи, вызывая другие сервисы по HTTP
+		apptsURL := fmt.Sprintf("http://appointments:8083/appointments/count?clinic_id=%d", clinicID.Int64)
+		paysURL := fmt.Sprintf("http://payments:8085/payments/count?clinic_id=%d", clinicID.Int64)
+
+		appointments := fetchCount(apptsURL)
+		payments := fetchCount(paysURL)
+
+		c.JSON(http.StatusOK, gin.H{
+			"patients":     patients,
+			"doctors":      doctors,
+			"appointments": appointments,
+			"payments":     payments,
+		})
+	})
 
 	// Старт
 	if err := r.Run(":8080"); err != nil {

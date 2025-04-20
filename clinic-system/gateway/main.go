@@ -15,7 +15,6 @@ func proxy(c *gin.Context, target string) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка проксирования"})
 		return
 	}
-	// копируем заголовки
 	req.Header = c.Request.Header
 
 	resp, err := client.Do(req)
@@ -25,16 +24,12 @@ func proxy(c *gin.Context, target string) {
 	}
 	defer resp.Body.Close()
 
-	// пробрасываем статус
 	c.Status(resp.StatusCode)
-	// пробрасываем заголовки
 	for k, values := range resp.Header {
 		for _, v := range values {
 			c.Writer.Header().Add(k, v)
 		}
 	}
-
-	// копируем тело ответа
 	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка копирования данных"})
 	}
@@ -43,52 +38,70 @@ func proxy(c *gin.Context, target string) {
 func main() {
 	r := gin.Default()
 
-	// users service
+	// === USERS SERVICE ===
+	// регистрация, логин, профиль, а теперь и админские эндпоинты:
 	r.Any("/api/users/*path", func(c *gin.Context) {
-		target := "http://users:8080" + c.Param("path")
-		proxy(c, target)
+		proxy(c, "http://users:8080"+c.Param("path"))
 	})
 
-	// schedules service
-	r.Any("/api/schedules/*path", func(c *gin.Context) {
-		target := "http://schedules:8082" + c.Param("path")
-		proxy(c, target)
+	// === ADMIN DASHBOARD ===
+	// статистика
+	r.Any("/api/admin/stats", func(c *gin.Context) {
+		proxy(c, "http://users:8080/admin/stats")
+	})
+	// пациенты
+	r.Any("/api/admin/patients", func(c *gin.Context) {
+		proxy(c, "http://users:8080/admin/patients")
+	})
+	// врачи
+	r.Any("/api/admin/doctors", func(c *gin.Context) {
+		proxy(c, "http://users:8080/admin/doctors")
+	})
+	// записи (передаём в appointments‑сервис)
+	r.Any("/api/admin/appointments", func(c *gin.Context) {
+		proxy(c, "http://appointments:8083/appointments")
+	})
+	// платежи (передаём в payments‑сервис)
+	r.Any("/api/admin/payments", func(c *gin.Context) {
+		proxy(c, "http://payments:8085/payments")
 	})
 
-	// appointments service
-	r.Any("/api/appointments/*path", func(c *gin.Context) {
-		target := "http://appointments:8083" + c.Param("path")
-		proxy(c, target)
+	// === DOCTORS CRUD ===
+	// для фронта — все запросы к /api/doctors
+	r.Any("/api/doctors", func(c *gin.Context) {
+		// GET /api/doctors, POST /api/doctors
+		proxy(c, "http://users:8080/doctors")
+	})
+	r.Any("/api/doctors/*path", func(c *gin.Context) {
+		// PUT, DELETE, GET /api/doctors/:id и т.п.
+		proxy(c, "http://users:8080/doctors"+c.Param("path"))
 	})
 
-	// medical_records service
-	r.Any("/api/medical_records/*path", func(c *gin.Context) {
-		target := "http://medical_records:8084" + c.Param("path")
-		proxy(c, target)
-	})
-
-	// payments service
-	r.Any("/api/payments/*path", func(c *gin.Context) {
-		target := "http://payments:8085" + c.Param("path")
-		proxy(c, target)
-	})
-
-	// notifications service
-	r.Any("/api/notifications/*path", func(c *gin.Context) {
-		target := "http://notifications:8086" + c.Param("path")
-		proxy(c, target)
-	})
-
-	// clinics service: exact /api/clinics
+	// === CLINICS SERVICE ===
 	r.Any("/api/clinics", func(c *gin.Context) {
-		// POST /api/clinics and GET /api/clinics
 		proxy(c, "http://clinics:8087/clinics")
 	})
-	// clinics service: all deeper routes, e.g. /api/clinics/{id}/assign-admin
 	r.Any("/api/clinics/*path", func(c *gin.Context) {
 		proxy(c, "http://clinics:8087/clinics"+c.Param("path"))
 	})
-	
+
+	// остальные сервисы
+	r.Any("/api/schedules/*path", func(c *gin.Context) {
+		proxy(c, "http://schedules:8082"+c.Param("path"))
+	})
+	r.Any("/api/appointments/*path", func(c *gin.Context) {
+		proxy(c, "http://appointments:8083"+c.Param("path"))
+	})
+	r.Any("/api/medical_records/*path", func(c *gin.Context) {
+		proxy(c, "http://medical_records:8084"+c.Param("path"))
+	})
+	r.Any("/api/payments/*path", func(c *gin.Context) {
+		proxy(c, "http://payments:8085"+c.Param("path"))
+	})
+	r.Any("/api/notifications/*path", func(c *gin.Context) {
+		proxy(c, "http://notifications:8086"+c.Param("path"))
+	})
+
 	if err := r.Run(":8000"); err != nil {
 		log.Fatal("Ошибка запуска API gateway:", err)
 	}
