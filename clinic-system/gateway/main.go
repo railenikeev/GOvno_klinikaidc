@@ -88,7 +88,7 @@ func main() {
 	r.Any("/api/clinics/*path", func(c *gin.Context) {
 		proxy(c, "http://clinics:8087/clinics"+c.Param("path"))
 	})
-
+	
 	if err := r.Run(":8000"); err != nil {
 		log.Fatal("Ошибка запуска API gateway:", err)
 	}

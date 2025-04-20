@@ -4,18 +4,26 @@ import {
     getClinics,
     createClinic,
     assignClinicAdmin,
-    deleteClinic,    // <-- импорт
-    updateClinic,    // <-- импорт
+    deleteClinic,
+    updateClinic,
 } from '../services/clinicService'
 
 export default function SystemAdminDashboard() {
     const [clinics, setClinics] = useState([])
-    const [form, setForm] = useState({ city: '', name: '', address: '', phone: '' })
+    const [form, setForm] = useState({
+        city: '',
+        name: '',
+        address: '',
+        phone: '',
+    })
     const [assignMap, setAssignMap] = useState({})
-
-    // Для редактирования
     const [editingId, setEditingId] = useState(null)
-    const [editForm, setEditForm] = useState({ city: '', name: '', address: '', phone: '' })
+    const [editForm, setEditForm] = useState({
+        city: '',
+        name: '',
+        address: '',
+        phone: '',
+    })
 
     useEffect(() => {
         loadClinics()
@@ -53,19 +61,17 @@ export default function SystemAdminDashboard() {
         }
     }
 
-    // **Новое**: удалить
-    async function handleDeleteClinic(id) {
+    async function handleDeleteClinic(clinicId) {
         if (!window.confirm('Удалить эту клинику?')) return
         try {
-            await deleteClinic(id)
+            await deleteClinic(clinicId)
             loadClinics()
         } catch (err) {
             alert(err.message)
         }
     }
 
-    // **Новое**: начать редактирование
-    function handleEditClick(clinic) {
+    function startEditing(clinic) {
         setEditingId(clinic.id)
         setEditForm({
             city: clinic.city,
@@ -75,20 +81,14 @@ export default function SystemAdminDashboard() {
         })
     }
 
-    // **Новое**: сохранить изменения
-    async function handleSaveEdit(id) {
+    async function saveEdit(clinicId) {
         try {
-            await updateClinic(id, editForm)
+            await updateClinic(clinicId, editForm)
             setEditingId(null)
             loadClinics()
         } catch (err) {
             alert(err.message)
         }
-    }
-
-    // **Новое**: отменить редактирование
-    function handleCancelEdit() {
-        setEditingId(null)
     }
 
     return (
@@ -102,17 +102,38 @@ export default function SystemAdminDashboard() {
                 onSubmit={handleCreateClinic}
                 className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8"
             >
-                {['city','name','address','phone'].map((field, i) => (
-                    <input
-                        key={field}
-                        type="text"
-                        placeholder={['Город','Название клиники','Адрес','Телефон'][i]}
-                        value={form[field]}
-                        onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
-                        required
-                    />
-                ))}
+                <input
+                    type="text"
+                    placeholder="Город"
+                    value={form.city}
+                    onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
+                    required
+                />
+                <input
+                    type="text"
+                    placeholder="Название клиники"
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
+                    required
+                />
+                <input
+                    type="text"
+                    placeholder="Адрес"
+                    value={form.address}
+                    onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600 md:col-span-2"
+                    required
+                />
+                <input
+                    type="text"
+                    placeholder="Телефон"
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
+                    required
+                />
                 <button
                     type="submit"
                     className="md:col-span-2 bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-white font-medium"
@@ -123,96 +144,112 @@ export default function SystemAdminDashboard() {
 
             {/* Список клиник */}
             <div className="space-y-6">
-                {clinics.map(clinic => {
-                    const isEditing = editingId === clinic.id
-                    return (
-                        <div
-                            key={clinic.id}
-                            className="bg-gray-800 hover:bg-gray-700 transition-shadow shadow-lg rounded-xl p-6"
-                        >
-                            {isEditing ? (
-                                <>
-                                    {/* Поля редактирования */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
-                                        {['city','name','address','phone'].map((field, i) => (
-                                            <input
-                                                key={field}
-                                                type="text"
-                                                placeholder={field}
-                                                value={editForm[field]}
-                                                onChange={e =>
-                                                    setEditForm(f => ({ ...f, [field]: e.target.value }))
-                                                }
-                                                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
-                                            />
-                                        ))}
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => handleSaveEdit(clinic.id)}
-                                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-white text-sm"
-                                        >
-                                            Сохранить
-                                        </button>
-                                        <button
-                                            onClick={handleCancelEdit}
-                                            className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg text-white text-sm"
-                                        >
-                                            Отменить
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <h2 className="text-xl font-semibold text-white mb-2">
-                                        {clinic.name}{' '}
-                                        <span className="text-gray-400">— {clinic.city}</span>
-                                    </h2>
-                                    <p className="text-gray-300 mb-1">{clinic.address}</p>
-                                    <p className="text-gray-300 mb-3">{clinic.phone}</p>
-                                    <p className="text-gray-300 mb-4">
-                                        <span className="font-medium">Админ:</span>{' '}
-                                        {clinic.admin
-                                            ? `${clinic.admin.fullName} (${clinic.admin.email})`
-                                            : '—'}
-                                    </p>
+                {clinics.map(cl => (
+                    <div
+                        key={cl.id}
+                        className="bg-gray-800 hover:bg-gray-700 transition-shadow shadow-lg hover:shadow-2xl rounded-xl p-6"
+                    >
+                        {/* Если режим редактирования для этой карточки */}
+                        {editingId === cl.id ? (
+                            <div className="space-y-3">
+                                <input
+                                    type="text"
+                                    value={editForm.city}
+                                    onChange={e =>
+                                        setEditForm(f => ({ ...f, city: e.target.value }))
+                                    }
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100"
+                                />
+                                <input
+                                    type="text"
+                                    value={editForm.name}
+                                    onChange={e =>
+                                        setEditForm(f => ({ ...f, name: e.target.value }))
+                                    }
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100"
+                                />
+                                <input
+                                    type="text"
+                                    value={editForm.address}
+                                    onChange={e =>
+                                        setEditForm(f => ({ ...f, address: e.target.value }))
+                                    }
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100"
+                                />
+                                <input
+                                    type="text"
+                                    value={editForm.phone}
+                                    onChange={e =>
+                                        setEditForm(f => ({ ...f, phone: e.target.value }))
+                                    }
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100"
+                                />
 
-                                    <div className="flex flex-wrap items-center gap-3 mb-4">
-                                        <input
-                                            type="text"
-                                            placeholder="ID администратора"
-                                            onChange={e =>
-                                                setAssignMap(m => ({ ...m, [clinic.id]: e.target.value }))
-                                            }
-                                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600 text-sm w-36"
-                                        />
-                                        <button
-                                            onClick={() => handleAssignAdmin(clinic.id)}
-                                            className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-white text-sm"
-                                        >
-                                            Назначить
-                                        </button>
-                                    </div>
+                                <div className="flex justify-end gap-2">
+                                    <button
+                                        onClick={() => saveEdit(cl.id)}
+                                        className="bg-green-500 hover:bg-green-400 text-white font-medium rounded-md px-4 py-2 text-sm"
+                                    >
+                                        Сохранить
+                                    </button>
+                                    <button
+                                        onClick={() => setEditingId(null)}
+                                        className="bg-gray-600 hover:bg-gray-500 text-white font-medium rounded-md px-4 py-2 text-sm"
+                                    >
+                                        Отменить
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <h2 className="text-xl font-semibold text-white mb-2">
+                                    {cl.name}{' '}
+                                    <span className="text-gray-400">— {cl.city}</span>
+                                </h2>
+                                <p className="text-gray-300 mb-1">{cl.address}</p>
+                                <p className="text-gray-300 mb-3">{cl.phone}</p>
+                                <p className="text-gray-300 mb-4">
+                                    <span className="font-medium">Админ:</span>{' '}
+                                    {cl.admin
+                                        ? `${cl.admin.fullName} (${cl.admin.email})`
+                                        : '—'}
+                                </p>
 
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => handleEditClick(clinic)}
-                                            className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white text-sm"
-                                        >
-                                            Ред.
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteClinic(clinic.id)}
-                                            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white text-sm"
-                                        >
-                                            Удалить
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    )
-                })}
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="ID администратора"
+                                        onChange={e =>
+                                            setAssignMap(m => ({ ...m, [cl.id]: e.target.value }))
+                                        }
+                                        className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600 text-sm w-36"
+                                    />
+                                    <button
+                                        onClick={() => handleAssignAdmin(cl.id)}
+                                        className="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-white text-sm"
+                                    >
+                                        Назначить
+                                    </button>
+                                </div>
+
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button
+                                        onClick={() => startEditing(cl)}
+                                        className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-medium rounded-md px-4 py-2 text-sm"
+                                    >
+                                        Редактировать
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteClinic(cl.id)}
+                                        className="bg-red-600 hover:bg-red-500 text-white font-medium rounded-md px-4 py-2 text-sm"
+                                    >
+                                        Удалить
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
     )
