@@ -1,45 +1,42 @@
 // src/services/appointmentService.js
 
-const API = 'http://localhost:8000/api/appointments';
-const token = () => localStorage.getItem('token');
+const API = '/api/appointments'
 
-// Получить список приёмов "моего" доктора
-export async function getMyAppointments() {
-    const res = await fetch(`${API}/my`, {
-        headers: { Authorization: `Bearer ${token()}` },
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Не удалось загрузить приёмы');
-    }
-    return res.json();
-}
-
-// Обновить приём (статус, комментарий…)
-export async function updateAppointment(id, data) {
-    const res = await fetch(`${API}/${id}`, {
-        method: 'PATCH',
+async function request(path, { method, body, headers = {} } = {}) {
+    const token = localStorage.getItem('token')
+    const res = await fetch(`${API}${path}`, {
+        method,
         headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token()}`,
+            // если есть тело — ставим JSON-заголовок
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+            Authorization: `Bearer ${token}`,
+            ...headers,
         },
-        body: JSON.stringify(data),
-    });
+        body: body ? JSON.stringify(body) : undefined,
+    })
+
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка обновления');
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Ошибка ${res.status}`)
     }
-    return res.json();
+
+    // если нет контента
+    if (res.status === 204) return null
+
+    return res.json()
 }
 
-// Отменить приём
-export async function cancelAppointment(id) {
-    const res = await fetch(`${API}/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token()}` },
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка отмены');
-    }
+// GET /api/appointments/my — список приёмов текущего доктора
+export function getMyAppointments() {
+    return request('/my')
+}
+
+// PATCH /api/appointments/:id — обновить приём (статус, комментарий и т.д.)
+export function updateAppointment(id, data) {
+    return request(`/${id}`, { method: 'PATCH', body: data })
+}
+
+// DELETE /api/appointments/:id — отменить приём
+export function cancelAppointment(id) {
+    return request(`/${id}`, { method: 'DELETE' })
 }

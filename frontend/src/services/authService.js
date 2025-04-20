@@ -1,25 +1,38 @@
-const API_URL = 'http://localhost:8000/api/users';
+// src/services/authService.js
 
-export async function login(email, password) {
-    const res = await fetch('http://localhost:8000/api/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+const API = '/api/users';
+
+async function request(path, opts = {}) {
+    const res = await fetch(`${API}${path}`, {
+        ...opts,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(opts.headers || {}),
+        },
     });
 
     if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Ошибка входа');
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Ошибка ${res.status}`);
     }
 
-    const data = await res.json();
-    return data.token;
+    // если возвращается пустой ответ
+    if (res.status === 204) return null;
+    return res.json();
 }
 
-export async function register({ fullName, email, password, phone }) {
-    const res = await fetch('http://localhost:8000/api/users/register', {
+// POST /api/users/login
+export function login(email, password) {
+    return request('/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+    }).then(data => data.token);
+}
+
+// POST /api/users/register
+export function register({ fullName, email, password, phone }) {
+    return request('/register', {
+        method: 'POST',
         body: JSON.stringify({
             full_name: fullName,
             email,
@@ -29,33 +42,14 @@ export async function register({ fullName, email, password, phone }) {
             clinic_id: null,
         }),
     });
-
-    if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Ошибка регистрации');
-    }
-
-    const data = await res.json();
-    return data;
 }
 
-export async function updateProfile(data) {
+// PATCH /api/users/me
+export function updateProfile(data) {
     const token = localStorage.getItem('token');
-
-    const res = await fetch('http://localhost:8000/api/users/me', {
+    return request('/me', {
         method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(data),
     });
-
-    if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Ошибка обновления профиля');
-    }
-
-    return res.json();
 }
-

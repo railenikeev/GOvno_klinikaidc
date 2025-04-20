@@ -1,5 +1,5 @@
 // frontend/src/services/profileService.js
-const API = 'http://localhost:8000/api'; // <-- обратите внимание: не /api/users, а именно /api
+const API = '/api';
 
 async function request(path, opts = {}) {
     const token = localStorage.getItem('token');
@@ -7,8 +7,8 @@ async function request(path, opts = {}) {
         ...opts,
         headers: {
             ...(opts.headers || {}),
-            Authorization: `Bearer ${token}`
-        }
+            Authorization: `Bearer ${token}`,
+        },
     });
 
     if (!res.ok) {
@@ -28,11 +28,13 @@ async function request(path, opts = {}) {
     }
 }
 
+// получить профиль текущего пользователя
 export function getProfile() {
-    // теперь это сделает GET /api/users/profile
+    // GET /api/users/profile
     return request('/users/profile');
 }
 
+// обновить профиль
 export function updateProfile(data) {
     // PUT /api/users/profile
     return request('/users/profile', {
@@ -42,24 +44,11 @@ export function updateProfile(data) {
     });
 }
 
+// смена пароля
 export function changePassword(data) {
     // POST /api/users/password
     return request('/users/password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-    });
-}
-
-export function getNotificationSettings() {
-    // GET /api/users/notifications
-    return request('/users/notifications');
-}
-
-export function updateNotificationSettings(data) {
-    // PUT /api/users/notifications
-    return request('/users/notifications', {
-        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });

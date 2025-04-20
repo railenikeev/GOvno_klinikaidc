@@ -2,22 +2,51 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [ react() ],
+  plugins: [react()],
   server: {
     proxy: {
-      // Проксируем все /api/users/* → http://localhost:8000/users/*
+      // Пользователи (из authService, profileService, clinicService)
       '/api/users': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: path => path.replace(/^\/api/, ''),
+        secure: false,
       },
-      // Проксируем /api/clinics/* → http://localhost:8000/clinics/*
+      // Клиники (из clinicService, bookingService)
       '/api/clinics': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: path => path.replace(/^\/api/, ''),
+        secure: false,
       },
-      // если есть другие сервисы — добавьте их аналогично
-    }
-  }
+      // Приёмы (из appointmentService и bookingService)
+      '/api/appointments': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Города (из bookingService)
+      '/api/cities': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Врачи (из bookingService)
+      '/api/doctors': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Расписания (из bookingService)
+      '/api/schedules': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Обработчик всего остального на /api (на случай новых эндпоинтов)
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 })
