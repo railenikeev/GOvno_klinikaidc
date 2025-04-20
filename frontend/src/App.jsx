@@ -47,6 +47,8 @@ export default function App() {
                         {/* System Admin */}
                         <Route path="/system-admin" element={<SystemAdminDashboard />} />
 
+                        <Route path="/doctor" element={<DoctorDashboard />} />
+
                         {/* 404 */}
                         <Route path="*" element={<NotFound />} />
                     </Routes>

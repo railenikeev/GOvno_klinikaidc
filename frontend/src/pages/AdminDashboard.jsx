@@ -1,4 +1,4 @@
-// src/pages/AdminDashboard.jsx
+// frontend/src/pages/AdminDashboard.jsx
 import React, { useEffect, useState } from 'react'
 import {
     getClinicStats,
@@ -6,7 +6,8 @@ import {
     getDoctors,
     getAppointments,
     getPayments,
-} from '../services/adminService' // <-- ваш сервис
+    addDoctor,
+} from '../services/adminService'
 
 const tabs = [
     { key: 'patients', label: 'Пациенты' },
@@ -28,22 +29,58 @@ export default function AdminDashboard() {
     const [payments, setPayments] = useState([])
     const [activeTab, setActiveTab] = useState('patients')
 
+    // Поля формы для добавления врача
+    const [newDoctorId, setNewDoctorId] = useState('')
+    const [newDoctorSpec, setNewDoctorSpec] = useState('')
+
     useEffect(() => {
-        // Замените на реальные вызовы
-        getClinicStats().then(setStats).catch(() => {})
-        getPatients().then(setPatients).catch(() => {})
-        getDoctors().then(setDoctors).catch(() => {})
-        getAppointments().then(setAppointments).catch(() => {})
-        getPayments().then(setPayments).catch(() => {})
+        async function loadAll() {
+            try {
+                const [s, p, d, a, pay] = await Promise.all([
+                    getClinicStats(),
+                    getPatients(),
+                    getDoctors(),
+                    getAppointments(),
+                    getPayments(),
+                ])
+                setStats(s)
+                setPatients(p)
+                setDoctors(d)
+                setAppointments(a)
+                setPayments(pay)
+            } catch {
+                // можно логировать или показывать уведомление
+            }
+        }
+        loadAll()
     }, [])
+
+    async function handleAddDoctor() {
+        if (!newDoctorId || !newDoctorSpec) {
+            return alert('Введите и ID пользователя, и специализацию')
+        }
+        try {
+            await addDoctor(Number(newDoctorId), newDoctorSpec)
+            setNewDoctorId('')
+            setNewDoctorSpec('')
+            // обновляем данные
+            const [updatedDoctors, updatedStats] = await Promise.all([
+                getDoctors(),
+                getClinicStats(),
+            ])
+            setDoctors(updatedDoctors)
+            setStats(updatedStats)
+            alert('Врач добавлен')
+        } catch (err) {
+            alert(err.message)
+        }
+    }
 
     return (
         <div className="min-h-[calc(100vh-128px)] bg-gray-950 text-gray-200 font-mono px-4 py-12">
             <div className="max-w-6xl mx-auto">
                 {/* Заголовок */}
-                <h1 className="text-3xl font-bold text-purple-400 mb-8">
-                    Администрирование клиники
-                </h1>
+                <h1 className="text-3xl font-bold text-purple-400 mb-8">Администрирование клиники</h1>
 
                 {/* Статистика */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -113,31 +150,58 @@ export default function AdminDashboard() {
                     )}
 
                     {activeTab === 'doctors' && (
-                        <table className="w-full table-auto bg-gray-900 rounded-lg overflow-hidden">
-                            <thead className="bg-gray-800">
-                            <tr>
-                                <th className="px-4 py-2 text-left text-gray-400">ID</th>
-                                <th className="px-4 py-2 text-left text-gray-400">ФИО</th>
-                                <th className="px-4 py-2 text-left text-gray-400">Специализация</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {doctors.map((d) => (
-                                <tr key={d.id} className="border-b border-gray-800">
-                                    <td className="px-4 py-2">{d.id}</td>
-                                    <td className="px-4 py-2">{d.full_name}</td>
-                                    <td className="px-4 py-2">{d.specialization}</td>
-                                </tr>
-                            ))}
-                            {doctors.length === 0 && (
+                        <>
+                            {/* Форма добавления врача */}
+                            <div className="mb-4 flex flex-wrap gap-2">
+                                <input
+                                    type="number"
+                                    placeholder="ID пользователя"
+                                    value={newDoctorId}
+                                    onChange={(e) => setNewDoctorId(e.target.value)}
+                                    className="px-3 py-2 bg-gray-900 border border-gray-700 rounded text-gray-100 w-32"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Специализация"
+                                    value={newDoctorSpec}
+                                    onChange={(e) => setNewDoctorSpec(e.target.value)}
+                                    className="px-3 py-2 bg-gray-900 border border-gray-700 rounded text-gray-100 flex-grow"
+                                />
+                                <button
+                                    onClick={handleAddDoctor}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded text-white"
+                                >
+                                    Добавить
+                                </button>
+                            </div>
+
+                            {/* Таблица врачей */}
+                            <table className="w-full table-auto bg-gray-900 rounded-lg overflow-hidden">
+                                <thead className="bg-gray-800">
                                 <tr>
-                                    <td colSpan="3" className="p-4 text-center text-gray-500">
-                                        Нет данных
-                                    </td>
+                                    <th className="px-4 py-2 text-left text-gray-400">ID</th>
+                                    <th className="px-4 py-2 text-left text-gray-400">ФИО</th>
+                                    <th className="px-4 py-2 text-left text-gray-400">Специализация</th>
                                 </tr>
-                            )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                {doctors.map((d) => (
+                                    <tr key={d.id} className="border-b border-gray-800">
+                                        <td className="px-4 py-2">{d.id}</td>
+                                        <td className="px-4 py-2">{d.full_name}</td>
+                                        <td className="px-4 py-2">{d.specialization}</td>
+                                    </tr>
+                                ))}
+                                {doctors.length === 0 && (
+                                    <tr>
+                                        <td colSpan="3" className="p-4 text-center text-gray-500">
+                                            Нет данных
+                                        </td>
+                                    </tr>
+                                )}
+                                </tbody>
+                            </table>
+                        </>
                     )}
 
                     {activeTab === 'appointments' && (
