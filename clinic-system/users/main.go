@@ -1,112 +1,142 @@
 package main
 
 import (
-	"errors"
+	"database/sql"
 	"log"
-	"net/http/httputil"
-	"net/url"
+	"net/http"
 	"os"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("supersecret") // Должен совпадать с тем, что в users_service
-
-// Извлекаем user_id из Authorization: Bearer <token>
-func extractUserID(c *gin.Context) (string, error) {
-	auth := c.GetHeader("Authorization")
-	if auth == "" {
-		return "", errors.New("no auth header")
-	}
-	parts := strings.Fields(auth)
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		return "", errors.New("invalid auth header")
-	}
-	tokenStr := parts[1]
-
-	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		return "", err
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", errors.New("invalid token claims")
-	}
-	raw, ok := claims["user_id"]
-	if !ok {
-		return "", errors.New("no user_id in token")
-	}
-	// Обычно в JWT числа приходят как float64
-	switch v := raw.(type) {
-	case float64:
-		return strconv.Itoa(int(v)), nil
-	case string:
-		return v, nil
-	default:
-		return "", errors.New("user_id has unexpected type")
-	}
+type User struct {
+	ID       int    `json:"id"`
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Role     string `json:"role"`
+	ClinicID *int   `json:"clinic_id"`
 }
 
-// Создаёт ReverseProxy на заданный URL
-func newProxy(target string) *httputil.ReverseProxy {
-	u, err := url.Parse(target)
-	if err != nil {
-		log.Fatalf("invalid proxy URL %q: %v", target, err)
-	}
-	return httputil.NewSingleHostReverseProxy(u)
-}
+// Секрет для подписи JWT (лучше хранить в ENV)
+var jwtSecret = []byte("supersecret")
 
 func main() {
-	// Читаем endpoints из окружения или берём дефолтные
-	usersURL := os.Getenv("USERS_SERVICE_URL")
-	if usersURL == "" {
-		usersURL = "http://users_service:8080"
+	// Подготовка подключения к БД
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL не задан")
 	}
-	clinicsURL := os.Getenv("CLINICS_SERVICE_URL")
-	if clinicsURL == "" {
-		clinicsURL = "http://clinics_service:8081"
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatal("Ошибка подключения к БД:", err)
 	}
-	appointmentsURL := os.Getenv("APPOINTMENTS_SERVICE_URL")
-	if appointmentsURL == "" {
-		appointmentsURL = "http://appointments_service:8082"
-	}
-
-	userProxy := newProxy(usersURL)
-	clinicProxy := newProxy(clinicsURL)
-	apptProxy := newProxy(appointmentsURL)
+	defer db.Close()
 
 	r := gin.Default()
 
-	// Прокси для users
-	r.Any("/api/users/*path", func(c *gin.Context) {
-		// Ставим X-User-ID
-		if uid, err := extractUserID(c); err == nil {
-			c.Request.Header.Set("X-User-ID", uid)
+	// 1) Регистрация
+	r.POST("/register", func(c *gin.Context) {
+		var req struct {
+			FullName string `json:"full_name"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
+			Phone    string `json:"phone"`
+			Role     string `json:"role"`
+			ClinicID *int   `json:"clinic_id"`
 		}
-		// Преобразуем URL /api/users/... → /...
-		c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/users")
-		userProxy.ServeHTTP(c.Writer, c.Request)
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
+			return
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка хеширования"})
+			return
+		}
+		var id int
+		err = db.QueryRow(
+			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id)
+			 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
+		).Scan(&id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при регистрации"})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"id": id})
 	})
 
-	// Прокси для clinics
-	r.Any("/api/clinics/*path", func(c *gin.Context) {
-		c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/clinics")
-		clinicProxy.ServeHTTP(c.Writer, c.Request)
+	// 2) Логин — возвращаем JWT
+	r.POST("/login", func(c *gin.Context) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
+			return
+		}
+		var id int
+		var hash string
+		err := db.QueryRow(
+			`SELECT id, password_hash FROM users WHERE email = $1`, req.Email,
+		).Scan(&id, &hash)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "пользователь не найден"})
+			return
+		}
+		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "неверный пароль"})
+			return
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"user_id": id,
+			"exp":     time.Now().Add(24 * time.Hour).Unix(),
+		})
+		tokenStr, err := token.SignedString(jwtSecret)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка формирования токена"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": tokenStr})
 	})
 
-	// Прокси для appointments
-	r.Any("/api/appointments/*path", func(c *gin.Context) {
-		c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/appointments")
-		apptProxy.ServeHTTP(c.Writer, c.Request)
-	})
+	// Общая функция получения профиля по X-User-ID
+	getProfileHandler := func(c *gin.Context) {
+		userID := c.GetHeader("X-User-ID")
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "не указан X-User-ID"})
+			return
+		}
+		uid, err := strconv.Atoi(userID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "некорректный X-User-ID"})
+			return
+		}
+		var u User
+		err = db.QueryRow(
+			`SELECT id, full_name, email, phone, role, clinic_id FROM users WHERE id = $1`,
+			uid,
+		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "пользователь не найден"})
+			return
+		}
+		c.JSON(http.StatusOK, u)
+	}
 
-	// Запускаем на 8000 порту
-	if err := r.Run(":8000"); err != nil {
-		log.Fatalf("failed to run gateway: %v", err)
+	// 3) Профиль — оба пути на тот же handler
+	r.GET("/me", getProfileHandler)
+	r.GET("/profile", getProfileHandler)
+
+	// Запуск сервера на 8080
+	if err := r.Run(":8080"); err != nil {
+		log.Fatal("Ошибка запуска сервера:", err)
 	}
 }
