@@ -8,7 +8,7 @@ import Footer from './components/Footer';
 import Home from './pages/Home';
 import LoginPage from './features/auth/LoginPage';
 import RegisterPage from './features/auth/RegisterPage';
-import BookingPage from './features/booking/BookingPage';
+import BookingWizard from './features/booking/BookingWizard'
 
 import AppointmentsPage from './pages/AppointmentsPage';
 import AppointmentDetails from './pages/AppointmentDetails';
@@ -30,7 +30,7 @@ export default function App() {
                         <Route path="/" element={<Home />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/register" element={<RegisterPage />} />
-                        <Route path="/booking" element={<BookingPage />} />
+                        <Route path="/booking" element={<BookingWizard />} />
 
                         {/* Patient */}
                         <Route path="/appointments" element={<AppointmentsPage />} />
