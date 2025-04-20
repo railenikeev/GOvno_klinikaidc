@@ -1,79 +1,66 @@
-// src/services/profileService.js
+// frontend/src/services/profileService.js
+const API = 'http://localhost:8000/api'; // <-- обратите внимание: не /api/users, а именно /api
 
-const API_BASE = 'http://localhost:8000/api';
-const tokenHeader = () => ({
-    Authorization: `Bearer ${localStorage.getItem('token')}`,
-});
-
-// Получить профиль
-export async function getProfile() {
-    const res = await fetch(`${API_BASE}/profile`, {
-        headers: tokenHeader(),
+async function request(path, opts = {}) {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API}${path}`, {
+        ...opts,
+        headers: {
+            ...(opts.headers || {}),
+            Authorization: `Bearer ${token}`
+        }
     });
+
     if (!res.ok) {
-        throw new Error('Не удалось загрузить профиль');
+        // прочитать тело как текст (может быть HTML) и бросить
+        const text = await res.text().catch(() => res.statusText);
+        throw new Error(text || `Ошибка ${res.status}`);
     }
-    return res.json();
+
+    // если код 204 — вернуть null
+    if (res.status === 204) return null;
+
+    // парсим JSON, а при ошибке — выдаём понятную ошибку
+    try {
+        return await res.json();
+    } catch {
+        throw new Error('Невалидный JSON в ответе от сервера');
+    }
 }
 
-// Обновить профиль
-export async function updateProfile(data) {
-    const res = await fetch(`${API_BASE}/profile`, {
+export function getProfile() {
+    // теперь это сделает GET /api/users/profile
+    return request('/users/profile');
+}
+
+export function updateProfile(data) {
+    // PUT /api/users/profile
+    return request('/users/profile', {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...tokenHeader(),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Ошибка при обновлении профиля');
-    }
-    return res.json();
 }
 
-// Сменить пароль
-export async function changePassword({ currentPassword, newPassword }) {
-    const res = await fetch(`${API_BASE}/profile/password`, {
+export function changePassword(data) {
+    // POST /api/users/password
+    return request('/users/password', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...tokenHeader(),
-        },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Ошибка при смене пароля');
-    }
-    return res.json();
 }
 
-// Получить настройки уведомлений
-export async function getNotificationSettings() {
-    const res = await fetch(`${API_BASE}/profile/notifications`, {
-        headers: tokenHeader(),
-    });
-    if (!res.ok) {
-        throw new Error('Не удалось загрузить настройки уведомлений');
-    }
-    return res.json(); // ожидаем { email: boolean, sms: boolean, push: boolean }
+export function getNotificationSettings() {
+    // GET /api/users/notifications
+    return request('/users/notifications');
 }
 
-// Обновить настройки уведомлений
-export async function updateNotificationSettings(settings) {
-    const res = await fetch(`${API_BASE}/profile/notifications`, {
+export function updateNotificationSettings(data) {
+    // PUT /api/users/notifications
+    return request('/users/notifications', {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...tokenHeader(),
-        },
-        body: JSON.stringify(settings),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Ошибка при обновлении настроек уведомлений');
-    }
-    return res.json();
 }

@@ -1,204 +1,189 @@
 // src/pages/ProfilePage.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react'
 import {
     getProfile,
     updateProfile,
     changePassword,
     getNotificationSettings,
     updateNotificationSettings,
-} from '../services/profileService.js';
+} from '../services/profileService'
 
 export default function ProfilePage() {
-    const [profile, setProfile] = useState({ fullName: '', email: '' });
-    const [form, setForm] = useState({ fullName: '', email: '' });
-    const [passwords, setPasswords] = useState({
+    const [profile, setProfile] = useState(null)
+    const [form, setForm] = useState({ fullName: '', email: '' })
+    const [passForm, setPassForm] = useState({
         currentPassword: '',
         newPassword: '',
-        confirmNewPassword: '',
-    });
-    const [notifications, setNotifications] = useState({
-        email: false,
-        sms: false,
-        push: false,
-    });
+        confirmPassword: '',
+    })
+    const [settings, setSettings] = useState({ email: false, sms: false, push: false })
 
     useEffect(() => {
-        // Загрузить профиль пользователя
-        getProfile()
-            .then((data) => {
-                setProfile(data);
-                setForm({ fullName: data.fullName, email: data.email });
-            })
-            .catch(() => alert('Ошибка загрузки профиля'));
+        loadProfile()
+        loadSettings()
+    }, [])
 
-        // Загрузить настройки уведомлений
-        getNotificationSettings()
-            .then(setNotifications)
-            .catch(() => alert('Ошибка загрузки настроек уведомлений'));
-    }, []);
-
-    const handleProfileSave = async (e) => {
-        e.preventDefault();
+    async function loadProfile() {
         try {
-            await updateProfile(form);
-            setProfile(form);
-            alert('Профиль сохранён');
+            const data = await getProfile()
+            setProfile(data)
+            setForm({ fullName: data.fullName, email: data.email })
         } catch (err) {
-            alert(err.message || 'Ошибка при сохранении профиля');
+            alert(err.message)
         }
-    };
+    }
 
-    const handleChangePassword = async (e) => {
-        e.preventDefault();
-        if (passwords.newPassword !== passwords.confirmNewPassword) {
-            return alert('Новый пароль и подтверждение не совпадают');
-        }
+    async function loadSettings() {
         try {
-            await changePassword({
-                currentPassword: passwords.currentPassword,
-                newPassword: passwords.newPassword,
-            });
-            setPasswords({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
-            alert('Пароль успешно изменён');
+            const s = await getNotificationSettings()
+            setSettings(s)
         } catch (err) {
-            alert(err.message || 'Ошибка при смене пароля');
+            alert(err.message)
         }
-    };
+    }
 
-    const handleNotificationsSave = async () => {
+    async function handleSaveProfile(e) {
+        e.preventDefault()
         try {
-            await updateNotificationSettings(notifications);
-            alert('Настройки уведомлений сохранены');
+            await updateProfile(form)
+            alert('Профиль сохранён')
+            loadProfile()
         } catch (err) {
-            alert(err.message || 'Ошибка при сохранении настроек уведомлений');
+            alert(err.message)
         }
-    };
+    }
+
+    async function handleChangePassword(e) {
+        e.preventDefault()
+        try {
+            await changePassword(passForm)
+            alert('Пароль успешно изменён')
+            setPassForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+        } catch (err) {
+            alert(err.message)
+        }
+    }
+
+    async function handleSaveSettings(e) {
+        e.preventDefault()
+        try {
+            await updateNotificationSettings(settings)
+            alert('Настройки уведомлений сохранены')
+        } catch (err) {
+            alert(err.message)
+        }
+    }
+
+    if (!profile) return <p>Загрузка...</p>
 
     return (
-        <div className="min-h-[calc(100vh-128px)] bg-gray-950 text-gray-200 font-mono px-4 py-12">
-            <div className="max-w-2xl mx-auto space-y-12">
-                <h2 className="text-2xl font-bold text-purple-400">Профиль</h2>
+        <div className="max-w-2xl mx-auto py-8 space-y-8">
+            <h1 className="text-3xl font-bold">Профиль</h1>
 
-                {/* Редактирование профиля */}
-                <form onSubmit={handleProfileSave} className="space-y-4">
+            <div className="bg-gray-800 p-6 rounded-lg space-y-4">
+                <p><strong>ID:</strong> {profile.id}</p>
+                <form onSubmit={handleSaveProfile} className="space-y-4">
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1">ФИО</label>
+                        <label className="block text-sm mb-1">ФИО</label>
                         <input
                             type="text"
                             value={form.fullName}
-                            onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                            onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
+                            className="w-full bg-gray-900 px-3 py-2 rounded"
+                            required
                         />
                     </div>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1">Email</label>
+                        <label className="block text-sm mb-1">Email</label>
                         <input
                             type="email"
                             value={form.email}
-                            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                            className="w-full bg-gray-900 px-3 py-2 rounded"
+                            required
                         />
                     </div>
                     <button
                         type="submit"
-                        className="px-4 py-2 bg-purple-500 hover:bg-purple-600 rounded text-white"
+                        className="px-4 py-2 bg-purple-500 rounded hover:bg-purple-600"
                     >
                         Сохранить профиль
                     </button>
                 </form>
+            </div>
 
-                {/* Смена пароля */}
+            <div className="bg-gray-800 p-6 rounded-lg space-y-4">
+                <h2 className="text-xl font-semibold">Сменить пароль</h2>
                 <form onSubmit={handleChangePassword} className="space-y-4">
-                    <h3 className="text-xl font-semibold text-gray-200">Сменить пароль</h3>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1">Текущий пароль</label>
+                        <label className="block text-sm mb-1">Текущий пароль</label>
                         <input
                             type="password"
-                            value={passwords.currentPassword}
-                            onChange={(e) =>
-                                setPasswords((p) => ({ ...p, currentPassword: e.target.value }))
+                            value={passForm.currentPassword}
+                            onChange={e =>
+                                setPassForm(p => ({ ...p, currentPassword: e.target.value }))
                             }
-                            className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                            className="w-full bg-gray-900 px-3 py-2 rounded"
+                            required
                         />
                     </div>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1">Новый пароль</label>
+                        <label className="block text-sm mb-1">Новый пароль</label>
                         <input
                             type="password"
-                            value={passwords.newPassword}
-                            onChange={(e) =>
-                                setPasswords((p) => ({ ...p, newPassword: e.target.value }))
-                            }
-                            className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                            value={passForm.newPassword}
+                            onChange={e => setPassForm(p => ({ ...p, newPassword: e.target.value }))}
+                            className="w-full bg-gray-900 px-3 py-2 rounded"
+                            required
                         />
                     </div>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1">
-                            Подтвердите новый пароль
-                        </label>
+                        <label className="block text-sm mb-1">Подтвердите пароль</label>
                         <input
                             type="password"
-                            value={passwords.confirmNewPassword}
-                            onChange={(e) =>
-                                setPasswords((p) => ({ ...p, confirmNewPassword: e.target.value }))
+                            value={passForm.confirmPassword}
+                            onChange={e =>
+                                setPassForm(p => ({ ...p, confirmPassword: e.target.value }))
                             }
-                            className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                            className="w-full bg-gray-900 px-3 py-2 rounded"
+                            required
                         />
                     </div>
                     <button
                         type="submit"
-                        className="px-4 py-2 bg-purple-500 hover:bg-purple-600 rounded text-white"
+                        className="px-4 py-2 bg-purple-500 rounded hover:bg-purple-600"
                     >
                         Сменить пароль
                     </button>
                 </form>
+            </div>
 
-                {/* Настройки уведомлений */}
-                <div className="space-y-4">
-                    <h3 className="text-xl font-semibold text-gray-200">Уведомления</h3>
-                    <div className="flex flex-col space-y-2">
-                        <label className="inline-flex items-center">
+            <div className="bg-gray-800 p-6 rounded-lg space-y-4">
+                <h2 className="text-xl font-semibold">Уведомления</h2>
+                <form onSubmit={handleSaveSettings} className="space-y-2">
+                    {['email', 'sms', 'push'].map(type => (
+                        <label key={type} className="inline-flex items-center space-x-2">
                             <input
                                 type="checkbox"
-                                checked={notifications.email}
-                                onChange={(e) =>
-                                    setNotifications((n) => ({ ...n, email: e.target.checked }))
+                                checked={settings[type]}
+                                onChange={e =>
+                                    setSettings(s => ({ ...s, [type]: e.target.checked }))
                                 }
-                                className="form-checkbox h-5 w-5 text-purple-500 bg-gray-800 border-gray-700 rounded"
+                                className="form-checkbox"
                             />
-                            <span className="ml-2 text-gray-200">Email-уведомления</span>
+                            <span className="capitalize">{type}-уведомления</span>
                         </label>
-                        <label className="inline-flex items-center">
-                            <input
-                                type="checkbox"
-                                checked={notifications.sms}
-                                onChange={(e) =>
-                                    setNotifications((n) => ({ ...n, sms: e.target.checked }))
-                                }
-                                className="form-checkbox h-5 w-5 text-purple-500 bg-gray-800 border-gray-700 rounded"
-                            />
-                            <span className="ml-2 text-gray-200">SMS-уведомления</span>
-                        </label>
-                        <label className="inline-flex items-center">
-                            <input
-                                type="checkbox"
-                                checked={notifications.push}
-                                onChange={(e) =>
-                                    setNotifications((n) => ({ ...n, push: e.target.checked }))
-                                }
-                                className="form-checkbox h-5 w-5 text-purple-500 bg-gray-800 border-gray-700 rounded"
-                            />
-                            <span className="ml-2 text-gray-200">Push-уведомления</span>
-                        </label>
+                    ))}
+                    <div>
+                        <button
+                            type="submit"
+                            className="mt-4 px-4 py-2 bg-purple-500 rounded hover:bg-purple-600"
+                        >
+                            Сохранить настройки
+                        </button>
                     </div>
-                    <button
-                        onClick={handleNotificationsSave}
-                        className="px-4 py-2 bg-purple-500 hover:bg-purple-600 rounded text-white"
-                    >
-                        Сохранить настройки
-                    </button>
-                </div>
+                </form>
             </div>
         </div>
-    );
+    )
 }
