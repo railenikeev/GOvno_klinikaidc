@@ -2,10 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// User — структура ответа профиля
 type User struct {
 	ID       int    `json:"id"`
 	FullName string `json:"full_name"`
@@ -26,8 +29,45 @@ type User struct {
 // Секрет для подписи JWT (лучше хранить в ENV)
 var jwtSecret = []byte("supersecret")
 
+// extractUserID достаёт user_id из JWT в Authorization: Bearer <token>
+func extractUserID(c *gin.Context) (int, error) {
+	auth := c.GetHeader("Authorization")
+	if auth == "" {
+		return 0, errors.New("отсутствует Authorization Header")
+	}
+	parts := strings.Fields(auth)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return 0, errors.New("некорректный Authorization Header")
+	}
+	tokenStr := parts[1]
+
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return 0, errors.New("некорректный или просроченный токен")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, errors.New("неверный формат токена")
+	}
+	raw, ok := claims["user_id"]
+	if !ok {
+		return 0, errors.New("user_id не найден в токене")
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int(v), nil
+	case string:
+		id, err := strconv.Atoi(v)
+		return id, err
+	default:
+		return 0, errors.New("неизвестный тип user_id в токене")
+	}
+}
+
 func main() {
-	// Подготовка подключения к БД
+	// Подключение к БД
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL не задан")
@@ -40,7 +80,7 @@ func main() {
 
 	r := gin.Default()
 
-	// 1) Регистрация
+	// Регистрация
 	r.POST("/register", func(c *gin.Context) {
 		var req struct {
 			FullName string `json:"full_name"`
@@ -62,7 +102,7 @@ func main() {
 		var id int
 		err = db.QueryRow(
 			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id)
-			 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
 			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
 		).Scan(&id)
 		if err != nil {
@@ -72,7 +112,7 @@ func main() {
 		c.JSON(http.StatusCreated, gin.H{"id": id})
 	})
 
-	// 2) Логин — возвращаем JWT
+	// Логин — возвращаем JWT
 	r.POST("/login", func(c *gin.Context) {
 		var req struct {
 			Email    string `json:"email"`
@@ -107,22 +147,16 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"token": tokenStr})
 	})
 
-	// Общая функция получения профиля по X-User-ID
-	getProfileHandler := func(c *gin.Context) {
-		userID := c.GetHeader("X-User-ID")
-		if userID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "не указан X-User-ID"})
-			return
-		}
-		uid, err := strconv.Atoi(userID)
+	// Общий хендлер получения профиля, теперь без X-User-ID
+	getProfile := func(c *gin.Context) {
+		uid, err := extractUserID(c)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "некорректный X-User-ID"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
 		var u User
 		err = db.QueryRow(
-			`SELECT id, full_name, email, phone, role, clinic_id FROM users WHERE id = $1`,
-			uid,
+			`SELECT id, full_name, email, phone, role, clinic_id FROM users WHERE id = $1`, uid,
 		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "пользователь не найден"})
@@ -131,11 +165,11 @@ func main() {
 		c.JSON(http.StatusOK, u)
 	}
 
-	// 3) Профиль — оба пути на тот же handler
-	r.GET("/me", getProfileHandler)
-	r.GET("/profile", getProfileHandler)
+	// Профиль по /me и /profile
+	r.GET("/me", getProfile)
+	r.GET("/profile", getProfile)
 
-	// Запуск сервера на 8080
+	// Старт
 	if err := r.Run(":8080"); err != nil {
 		log.Fatal("Ошибка запуска сервера:", err)
 	}
