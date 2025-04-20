@@ -1,62 +1,57 @@
-// src/services/clinicService.js
+// frontend/src/services/clinicService.js
 
-const GATEWAY = 'http://localhost:8000/api';
+const API = '/api'
 
-// GET /api/clinics
-export async function getClinics() {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${GATEWAY}/clinics`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error('Ошибка загрузки клиник');
-    return res.json();
+async function request(path, opts = {}) {
+    const token = localStorage.getItem('token')
+    const res = await fetch(`${API}${path}`, {
+        ...opts,
+        headers: {
+            ...(opts.headers || {}),
+            Authorization: `Bearer ${token}`,
+        },
+    })
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Ошибка ${res.status}`)
+    }
+    if (res.status === 204) return null
+    return res.json()
 }
 
-// POST /api/clinics
-export async function createClinic({ city, name, address, phone, adminId }) {
-    const token = localStorage.getItem('token');
-    const body = { city, name, address, phone };
-    if (adminId) body.adminId = adminId;
+export function getClinics() {
+    return request('/clinics')
+}
 
-    const res = await fetch(`${GATEWAY}/clinics`, {
+export function createClinic(data) {
+    return request('/clinics', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка создания клиники');
-    }
-    return res.json();
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    })
 }
 
-// PATCH /api/clinics/:id/assign-admin
-export async function assignClinicAdmin(clinicId, userId) {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${GATEWAY}/clinics/${clinicId}/assign-admin`, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
+export function assignClinicAdmin(clinicId, userId) {
+    return request(`/clinics/${clinicId}/assign-admin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminId: userId }),
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка назначения администратора');
-    }
-    return res.json();
+    })
 }
 
-// GET /api/users
-export async function getUsers() {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${GATEWAY}/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error('Ошибка загрузки пользователей');
-    return res.json();
+// **Новое**: удалить клинику
+export function deleteClinic(clinicId) {
+    return request(`/clinics/${clinicId}`, {
+        method: 'DELETE',
+    })
+}
+
+// **Новое**: обновить клинику
+export function updateClinic(clinicId, data) {
+    return request(`/clinics/${clinicId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    })
 }

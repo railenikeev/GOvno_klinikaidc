@@ -1,27 +1,24 @@
-// src/components/SystemAdminDashboard.jsx
+// frontend/src/pages/SystemAdminDashboard.jsx
 import React, { useEffect, useState } from 'react'
 import {
     getClinics,
-    getUsers,
     createClinic,
     assignClinicAdmin,
+    deleteClinic,    // <-- импорт
+    updateClinic,    // <-- импорт
 } from '../services/clinicService'
 
 export default function SystemAdminDashboard() {
-    const [clinics, setClinics]       = useState([])
-    const [users, setUsers]           = useState([])
-    const [form, setForm]             = useState({
-        city: '',
-        name: '',
-        address: '',
-        phone: '',
-        adminId: '',    // теперь вводится вручную
-    })
-    const [assignMap, setAssignMap]   = useState({})
+    const [clinics, setClinics] = useState([])
+    const [form, setForm] = useState({ city: '', name: '', address: '', phone: '' })
+    const [assignMap, setAssignMap] = useState({})
+
+    // Для редактирования
+    const [editingId, setEditingId] = useState(null)
+    const [editForm, setEditForm] = useState({ city: '', name: '', address: '', phone: '' })
 
     useEffect(() => {
         loadClinics()
-        loadUsers()
     }, [])
 
     async function loadClinics() {
@@ -33,20 +30,11 @@ export default function SystemAdminDashboard() {
         }
     }
 
-    async function loadUsers() {
-        try {
-            setUsers(await getUsers())
-        } catch {
-            alert('Ошибка загрузки пользователей')
-        }
-    }
-
     async function handleCreateClinic(e) {
         e.preventDefault()
         try {
-            // передаём adminId строкой, бэк это разберёт
             await createClinic(form)
-            setForm({ city: '', name: '', address: '', phone: '', adminId: '' })
+            setForm({ city: '', name: '', address: '', phone: '' })
             loadClinics()
         } catch (err) {
             alert(err.message)
@@ -55,120 +43,176 @@ export default function SystemAdminDashboard() {
 
     async function handleAssignAdmin(clinicId) {
         const userId = assignMap[clinicId]
-        if (!userId) {
-            alert('Введите ID администратора')
-            return
-        }
+        if (!userId) return alert('Введите ID администратора')
         try {
             await assignClinicAdmin(clinicId, userId)
-            alert('Администратор клиники назначен')
+            alert('Администратор назначен')
             loadClinics()
         } catch (err) {
             alert(err.message)
         }
     }
 
+    // **Новое**: удалить
+    async function handleDeleteClinic(id) {
+        if (!window.confirm('Удалить эту клинику?')) return
+        try {
+            await deleteClinic(id)
+            loadClinics()
+        } catch (err) {
+            alert(err.message)
+        }
+    }
+
+    // **Новое**: начать редактирование
+    function handleEditClick(clinic) {
+        setEditingId(clinic.id)
+        setEditForm({
+            city: clinic.city,
+            name: clinic.name,
+            address: clinic.address,
+            phone: clinic.phone,
+        })
+    }
+
+    // **Новое**: сохранить изменения
+    async function handleSaveEdit(id) {
+        try {
+            await updateClinic(id, editForm)
+            setEditingId(null)
+            loadClinics()
+        } catch (err) {
+            alert(err.message)
+        }
+    }
+
+    // **Новое**: отменить редактирование
+    function handleCancelEdit() {
+        setEditingId(null)
+    }
+
     return (
-        <div className="min-h-[calc(100vh-128px)] bg-gray-950 text-gray-200 font-mono px-4 py-12">
-            <div className="max-w-3xl mx-auto space-y-8">
-                <h2 className="text-2xl font-bold text-purple-400">
-                    Панель системного администратора
-                </h2>
+        <div className="container mx-auto max-w-4xl px-4 py-6">
+            <h1 className="text-2xl font-semibold mb-6 text-white">
+                Панель системного администратора
+            </h1>
 
-                {/* Форма создания клиники */}
-                <form onSubmit={handleCreateClinic} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Форма создания клиники */}
+            <form
+                onSubmit={handleCreateClinic}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8"
+            >
+                {['city','name','address','phone'].map((field, i) => (
                     <input
-                        placeholder="Город"
-                        value={form.city}
-                        onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
-                        className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
+                        key={field}
+                        type="text"
+                        placeholder={['Город','Название клиники','Адрес','Телефон'][i]}
+                        value={form[field]}
+                        onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
                         required
                     />
-                    <input
-                        placeholder="Название клиники"
-                        value={form.name}
-                        onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                        className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
-                        required
-                    />
-                    <input
-                        placeholder="Адрес"
-                        value={form.address}
-                        onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                        className="col-span-1 md:col-span-2 bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
-                        required
-                    />
-                    <input
-                        placeholder="Телефон"
-                        value={form.phone}
-                        onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                        className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
-                        required
-                    />
+                ))}
+                <button
+                    type="submit"
+                    className="md:col-span-2 bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-white font-medium"
+                >
+                    Добавить клинику
+                </button>
+            </form>
 
-                    {/* здесь вводим ID админа вручную */}
-                    <input
-                        placeholder="ID администратора (опционально)"
-                        value={form.adminId}
-                        onChange={e => setForm(f => ({ ...f, adminId: e.target.value }))}
-                        className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100"
-                    />
-
-                    <button
-                        type="submit"
-                        className="col-span-1 md:col-span-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 rounded text-white"
-                    >
-                        Добавить клинику
-                    </button>
-                </form>
-
-                {/* Список существующих клиник */}
-                {clinics.length === 0 ? (
-                    <p>Клиник пока нет.</p>
-                ) : (
-                    <div className="space-y-4">
-                        {clinics.map(clinic => (
-                            <div
-                                key={clinic.id}
-                                className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col md:flex-row md:items-center gap-4"
-                            >
-                                <div className="flex-1">
-                                    <p className="text-lg">
-                                        {clinic.name} —{' '}
-                                        <span className="text-sm text-gray-500">{clinic.city}</span>
-                                    </p>
-                                    <p className="text-sm text-gray-400">{clinic.address}</p>
-                                    <p className="text-sm text-gray-400">📞 {clinic.phone}</p>
-                                    <p className="text-sm text-gray-500">
-                                        Админ:&nbsp;
+            {/* Список клиник */}
+            <div className="space-y-6">
+                {clinics.map(clinic => {
+                    const isEditing = editingId === clinic.id
+                    return (
+                        <div
+                            key={clinic.id}
+                            className="bg-gray-800 hover:bg-gray-700 transition-shadow shadow-lg rounded-xl p-6"
+                        >
+                            {isEditing ? (
+                                <>
+                                    {/* Поля редактирования */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+                                        {['city','name','address','phone'].map((field, i) => (
+                                            <input
+                                                key={field}
+                                                type="text"
+                                                placeholder={field}
+                                                value={editForm[field]}
+                                                onChange={e =>
+                                                    setEditForm(f => ({ ...f, [field]: e.target.value }))
+                                                }
+                                                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleSaveEdit(clinic.id)}
+                                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-white text-sm"
+                                        >
+                                            Сохранить
+                                        </button>
+                                        <button
+                                            onClick={handleCancelEdit}
+                                            className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg text-white text-sm"
+                                        >
+                                            Отменить
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <h2 className="text-xl font-semibold text-white mb-2">
+                                        {clinic.name}{' '}
+                                        <span className="text-gray-400">— {clinic.city}</span>
+                                    </h2>
+                                    <p className="text-gray-300 mb-1">{clinic.address}</p>
+                                    <p className="text-gray-300 mb-3">{clinic.phone}</p>
+                                    <p className="text-gray-300 mb-4">
+                                        <span className="font-medium">Админ:</span>{' '}
                                         {clinic.admin
                                             ? `${clinic.admin.fullName} (${clinic.admin.email})`
                                             : '—'}
                                     </p>
-                                </div>
 
-                                <div className="flex items-center gap-2">
-                                    {/* вводим ID админа */}
-                                    <input
-                                        type="text"
-                                        placeholder="Введите ID админа"
-                                        value={assignMap[clinic.id] || ''}
-                                        onChange={e =>
-                                            setAssignMap(m => ({ ...m, [clinic.id]: e.target.value }))
-                                        }
-                                        className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-100 text-sm w-36"
-                                    />
-                                    <button
-                                        onClick={() => handleAssignAdmin(clinic.id)}
-                                        className="px-3 py-2 bg-blue-500 hover:bg-blue-600 rounded text-white text-sm"
-                                    >
-                                        Назначить
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                                    <div className="flex flex-wrap items-center gap-3 mb-4">
+                                        <input
+                                            type="text"
+                                            placeholder="ID администратора"
+                                            onChange={e =>
+                                                setAssignMap(m => ({ ...m, [clinic.id]: e.target.value }))
+                                            }
+                                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600 text-sm w-36"
+                                        />
+                                        <button
+                                            onClick={() => handleAssignAdmin(clinic.id)}
+                                            className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-white text-sm"
+                                        >
+                                            Назначить
+                                        </button>
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleEditClick(clinic)}
+                                            className="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg text-white text-sm"
+                                        >
+                                            Ред.
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteClinic(clinic.id)}
+                                            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white text-sm"
+                                        >
+                                            Удалить
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )
+                })}
             </div>
         </div>
     )
