@@ -1,3 +1,5 @@
+// api-gateway/main.go
+
 package main
 
 import (
@@ -15,7 +17,7 @@ func proxy(c *gin.Context, target string) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка проксирования"})
 		return
 	}
-	// копируем заголовки
+	// копируем все заголовки от клиента
 	req.Header = c.Request.Header
 
 	resp, err := client.Do(req)
@@ -25,9 +27,9 @@ func proxy(c *gin.Context, target string) {
 	}
 	defer resp.Body.Close()
 
-	// пробрасываем статус
+	// пробрасываем статус от бэкенда
 	c.Status(resp.StatusCode)
-	// пробрасываем заголовки
+	// пробрасываем все заголовки от бэкенда
 	for k, values := range resp.Header {
 		for _, v := range values {
 			c.Writer.Header().Add(k, v)
@@ -43,52 +45,53 @@ func proxy(c *gin.Context, target string) {
 func main() {
 	r := gin.Default()
 
-	// users service
+	// USERS
 	r.Any("/api/users/*path", func(c *gin.Context) {
-		target := "http://users:8080" + c.Param("path")
+		// users_service — имя контейнера из docker-compose
+		target := "http://users_service:8080" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// schedules service
+	// SCHEDULES
 	r.Any("/api/schedules/*path", func(c *gin.Context) {
-		target := "http://schedules:8082" + c.Param("path")
+		target := "http://schedules_service:8082" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// appointments service
+	// APPOINTMENTS
 	r.Any("/api/appointments/*path", func(c *gin.Context) {
-		target := "http://appointments:8083" + c.Param("path")
+		target := "http://appointments_service:8083" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// medical_records service
+	// MEDICAL_RECORDS
 	r.Any("/api/medical_records/*path", func(c *gin.Context) {
-		target := "http://medical_records:8084" + c.Param("path")
+		target := "http://medical_records_service:8084" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// payments service
+	// PAYMENTS
 	r.Any("/api/payments/*path", func(c *gin.Context) {
-		target := "http://payments:8085" + c.Param("path")
+		target := "http://payments_service:8085" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// notifications service
+	// NOTIFICATIONS
 	r.Any("/api/notifications/*path", func(c *gin.Context) {
-		target := "http://notifications:8086" + c.Param("path")
+		target := "http://notifications_service:8086" + c.Param("path")
 		proxy(c, target)
 	})
 
-	// clinics service: exact /api/clinics
+	// CLINICS — точка без “*”, то есть GET /api/clinics и POST /api/clinics
 	r.Any("/api/clinics", func(c *gin.Context) {
-		// POST /api/clinics and GET /api/clinics
-		proxy(c, "http://clinics:8087/clinics")
+		proxy(c, "http://clinics_service:8087/clinics")
 	})
-	// clinics service: all deeper routes, e.g. /api/clinics/{id}/assign-admin
+	// CLINICS — все остальные маршруты: /api/clinics/{id}/…
 	r.Any("/api/clinics/*path", func(c *gin.Context) {
-		proxy(c, "http://clinics:8087/clinics"+c.Param("path"))
+		proxy(c, "http://clinics_service:8087/clinics"+c.Param("path"))
 	})
 
+	log.Println("API gateway запущен на :8000")
 	if err := r.Run(":8000"); err != nil {
 		log.Fatal("Ошибка запуска API gateway:", err)
 	}
