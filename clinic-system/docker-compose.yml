@@ -1,0 +1,131 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    container_name: clinic_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecret
+      POSTGRES_DB: clinic_system
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8081:80"
+    depends_on:
+      - db
+
+  users:
+    build:
+      context: ./users
+    container_name: users_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8080:8080"
+
+  schedules:
+    build:
+      context: ./schedules
+    container_name: schedules_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8082:8082"
+
+  appointments:
+    build:
+      context: ./appointments
+    container_name: appointments_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8083:8083"
+
+  medical_records:
+    build:
+      context: ./medical_records
+    container_name: medical_records_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8084:8084"
+
+  payments:
+    build:
+      context: ./payments
+    container_name: payments_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8085:8085"
+
+  notifications:
+    build:
+      context: ./notifications
+    container_name: notifications_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8086:8086"
+
+  clinics:
+    build:
+      context: ./clinics
+    container_name: clinics_service
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+    ports:
+      - "8087:8087"
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: api_gateway
+    restart: always
+    depends_on:
+      - users
+      - schedules
+      - appointments
+      - medical_records
+      - payments
+      - notifications
+      - clinics
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
