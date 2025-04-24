@@ -84,31 +84,54 @@ func main() {
 	/* ---------- регистрация ---------- */
 	r.POST("/register", func(c *gin.Context) {
 		var req struct {
-			FullName  string `json:"full_name"`
-			Email     string `json:"email"`
-			Password  string `json:"password"`
-			Phone     string `json:"phone"`
-			Role      string `json:"role"`
-			ClinicID  *int   `json:"clinic_id"`
-			Specialty string `json:"specialization"`
+			FullName       string  `json:"full_name"`
+			Email          string  `json:"email"`
+			Password       string  `json:"password"`
+			Phone          string  `json:"phone"`
+			Role           string  `json:"role"`
+			ClinicID       *int    `json:"clinic_id"`
+			Specialization *string `json:"specialization"` // добавили поле для специализации
 		}
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
 			return
 		}
+
+		// хэшируем пароль
 		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		var id int
+
+		// вставляем в users
+		var userID int
 		err := db.QueryRow(
-			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id)
-				 VALUES ($1,$2,$3,$4,$5,$6)
-				 RETURNING id`,
+			`INSERT INTO users 
+            (full_name, email, password_hash, phone, role, clinic_id) 
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING id`,
 			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
-		).Scan(&id)
+		).Scan(&userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при регистрации"})
 			return
 		}
-		c.JSON(http.StatusCreated, gin.H{"id": id})
+
+		// если это врач — сразу же создаём запись в таблице doctors
+		if req.Role == "doctor" {
+			spec := ""
+			if req.Specialization != nil {
+				spec = *req.Specialization
+			}
+			// здесь мы используем именно тот же userID
+			if _, err := db.Exec(
+				`INSERT INTO doctors (id, full_name, specialty, clinic_id) 
+             VALUES ($1,$2,$3,$4)`,
+				userID, req.FullName, spec, req.ClinicID,
+			); err != nil {
+				log.Printf("warning: не удалось добавить в doctors: %v", err)
+				// но не фейлим регистрацию — врач уже создан как пользователь
+			}
+		}
+
+		c.JSON(http.StatusCreated, gin.H{"id": userID})
 	})
 
 	/* ---------- вход ---------- */
