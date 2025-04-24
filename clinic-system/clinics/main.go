@@ -182,6 +182,19 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "Администратор назначен"})
 	})
 
+	r.PATCH("/clinics/:id/remove-admin", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "неверный id"})
+			return
+		}
+		if _, err := db.Exec(`UPDATE clinics SET admin_id = NULL WHERE id=$1`, id); err != nil {
+			c.JSON(500, gin.H{"error": "db error"})
+			return
+		}
+		c.JSON(200, gin.H{"message": "Администратор снят"})
+	})
+
 	/* ────────── run ────────── */
 	if err := r.Run(":8087"); err != nil {
 		log.Fatal("Ошибка запуска clinics сервиса:", err)
