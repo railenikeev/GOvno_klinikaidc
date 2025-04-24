@@ -15,7 +15,7 @@ func proxy(c *gin.Context, target string) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка проксирования"})
 		return
 	}
-	// копируем все заголовки
+	// копируем заголовки
 	req.Header = c.Request.Header
 
 	resp, err := client.Do(req)
@@ -27,13 +27,13 @@ func proxy(c *gin.Context, target string) {
 
 	// пробрасываем статус
 	c.Status(resp.StatusCode)
-	// пробрасываем заголовки ответа
+	// пробрасываем заголовки
 	for k, values := range resp.Header {
 		for _, v := range values {
 			c.Writer.Header().Add(k, v)
 		}
 	}
-	// копируем тело
+	// копируем тело ответа
 	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка копирования данных"})
 	}
@@ -43,22 +43,29 @@ func main() {
 	r := gin.Default()
 
 	// === USERS SERVICE ===
-	// Прокси для всех /api/users/*path (включая /api/users/my, /api/users/login и т.д.)
+	// всё под /api/users/*path идёт в users:8080
 	r.Any("/api/users/*path", func(c *gin.Context) {
 		proxy(c, "http://users:8080"+c.Param("path"))
 	})
 
 	// === CLINICS SERVICE ===
+	// точный маппинг для списка
 	r.Any("/api/clinics", func(c *gin.Context) {
 		proxy(c, "http://clinics:8087/clinics")
 	})
+	// и всё глубже
 	r.Any("/api/clinics/*path", func(c *gin.Context) {
 		proxy(c, "http://clinics:8087/clinics"+c.Param("path"))
 	})
 
 	// === SCHEDULES SERVICE ===
+	// точный маппинг для корня
+	r.Any("/api/schedules", func(c *gin.Context) {
+		proxy(c, "http://schedules:8082/schedules")
+	})
+	// всё глубже (/schedules/my, /schedules/:id и т.д.)
 	r.Any("/api/schedules/*path", func(c *gin.Context) {
-		proxy(c, "http://schedules:8082"+c.Param("path"))
+		proxy(c, "http://schedules:8082/schedules"+c.Param("path"))
 	})
 
 	// === APPOINTMENTS SERVICE ===
@@ -82,6 +89,6 @@ func main() {
 	})
 
 	if err := r.Run(":8000"); err != nil {
-		log.Fatal("Ошибка запуска API Gateway:", err)
+		log.Fatal("Ошибка запуска API gateway:", err)
 	}
 }

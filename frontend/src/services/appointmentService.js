@@ -3,12 +3,15 @@
 const API = '/api';
 
 function authHeaders() {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token')
+    const userId = localStorage.getItem('user_id')  // или получаете из токена
     return {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-    };
+        'Authorization': `Bearer ${token}`,
+        'X-User-ID': userId,
+    }
 }
+
 
 /* ──────────── APPOINTMENTS ──────────── */
 
