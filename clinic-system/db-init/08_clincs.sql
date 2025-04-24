@@ -3,6 +3,6 @@ CREATE TABLE IF NOT EXISTS clinics (
     city VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     address VARCHAR(255) NOT NULL,
-    phone VARCHAR(10) NOT NULL,
+    phone VARCHAR(11) NOT NULL,
     admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );

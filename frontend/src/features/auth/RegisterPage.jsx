@@ -67,7 +67,8 @@ export default function RegisterPage() {
                         type="tel"
                         value={phone}
                         required
-                        pattern="[0-9]{10}"
+                        maxLength={11}
+                        pattern="\d{11}"
                         onChange={(e) => setPhone(e.target.value)}
                         className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-100"
                     />
