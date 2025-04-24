@@ -32,16 +32,17 @@ async function request(path, opts = {}) {
 /* ──────────── auth ──────────── */
 
 // POST /api/users/login
-export async function login(email, password) {
-    const user = await request('/login', {
+export function login(email, password) {
+    return request('/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
-    });
-    // user = { id, full_name, role, token }
-    localStorage.setItem('token',   user.token);
-    localStorage.setItem('user_id', user.id);
-    return user;
+    }).then(data => {
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user_id', data.user_id)
+        return data
+    })
 }
+
 
 // POST /api/users/register
 export async function register({ fullName, email, password, phone }) {

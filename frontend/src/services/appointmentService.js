@@ -1,14 +1,16 @@
 // frontend/src/services/appointmentService.js
-const API = '/api';
 
+const API = '/api'
 function authHeaders() {
-    const token = localStorage.getItem('token');
-    const userId = localStorage.getItem('userId');
-    const h = { 'Content-Type': 'application/json' };
-    if (token) h.Authorization = `Bearer ${token}`;
-    if (userId) h['X-User-ID'] = userId;
-    return h;
+    const token  = localStorage.getItem('token')
+    const userId = localStorage.getItem('user_id')
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'X-User-ID':    userId,
+    }
 }
+
 
 // Fetch all appointments for the logged-in doctor
 export async function getMyAppointments() {
