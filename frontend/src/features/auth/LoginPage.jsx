@@ -1,21 +1,33 @@
+// frontend/src/pages/LoginPage.jsx
+// --------------------------------
 import React, { useState } from 'react';
 import { login } from '../../services/authService.js';
 import { useNavigate } from 'react-router-dom';
 
 export default function LoginPage() {
-    const [email, setEmail] = useState('');
+    const [email, setEmail]       = useState('');
     const [password, setPassword] = useState('');
+    const [loading, setLoading]   = useState(false);
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (loading) return;
+        setLoading(true);
         try {
-            const token = await login(email, password);
-            localStorage.setItem('token', token);
+            const user = await login(email, password); // ← authService уже сохранил token и id
             alert('Вход выполнен');
-            navigate('/profile');
+
+            // куда вести после логина?
+            if (user.role === 'doctor') {
+                navigate('/doctor');
+            } else {
+                navigate('/profile');
+            }
         } catch (err) {
             alert('Ошибка входа: ' + err.message);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -59,9 +71,14 @@ export default function LoginPage() {
 
                 <button
                     type="submit"
-                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-semibold py-2 px-4 rounded transition shadow"
+                    disabled={loading}
+                    className={`w-full font-semibold py-2 px-4 rounded transition shadow
+            ${loading
+                        ? 'bg-gray-700 cursor-not-allowed'
+                        : 'bg-cyan-500 hover:bg-cyan-400 text-gray-900'}
+          `}
                 >
-                    Войти
+                    {loading ? '…' : 'Войти'}
                 </button>
             </form>
         </div>
