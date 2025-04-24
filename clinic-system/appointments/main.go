@@ -41,31 +41,30 @@ func main() {
 			return
 		}
 		a.Status = "записан"
-
 		err := db.QueryRow(`
 			INSERT INTO appointments (user_id, slot_id, status)
-			VALUES ($1, $2, $3) RETURNING id, created_at`,
-			a.UserID, a.SlotID, a.Status).Scan(&a.ID, &a.CreatedAt)
+			VALUES ($1, $2, $3)
+			RETURNING id, created_at
+		`, a.UserID, a.SlotID, a.Status).Scan(&a.ID, &a.CreatedAt)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при записи"})
 			return
 		}
-
 		c.JSON(http.StatusCreated, a)
 	})
 
-	// Получить список записей по user_id (через заголовок)
+	// Получить список записей по user_id (из заголовка)
 	r.GET("/appointments", func(c *gin.Context) {
 		userID := c.GetHeader("X-User-ID")
 		if userID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
 			return
 		}
-
 		rows, err := db.Query(`
 			SELECT id, user_id, slot_id, status, created_at
 			FROM appointments
-			WHERE user_id = $1`, userID)
+			WHERE user_id = $1
+		`, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при запросе"})
 			return
@@ -79,7 +78,6 @@ func main() {
 				list = append(list, a)
 			}
 		}
-
 		c.JSON(http.StatusOK, list)
 	})
 

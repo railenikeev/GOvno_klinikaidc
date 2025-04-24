@@ -41,13 +41,14 @@ func main() {
 
 	r := gin.Default()
 
-	// Добавить врача
+	// ─── Добавить врача ───
 	r.POST("/doctors", func(c *gin.Context) {
 		var d Doctor
 		if err := c.BindJSON(&d); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
 			return
 		}
+
 		err := db.QueryRow(
 			`INSERT INTO doctors (full_name, specialty, clinic_id) VALUES ($1, $2, $3) RETURNING id`,
 			d.FullName, d.Specialty, d.ClinicID,
@@ -56,10 +57,11 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при добавлении"})
 			return
 		}
+
 		c.JSON(http.StatusCreated, d)
 	})
 
-	// Получить всех врачей
+	// ─── Получить всех врачей ───
 	r.GET("/doctors", func(c *gin.Context) {
 		rows, err := db.Query(`SELECT id, full_name, specialty, clinic_id FROM doctors`)
 		if err != nil {
@@ -75,10 +77,11 @@ func main() {
 				doctors = append(doctors, d)
 			}
 		}
+
 		c.JSON(http.StatusOK, doctors)
 	})
 
-	// Добавить слоты врачу
+	// ─── Добавить слот врачу ───
 	r.POST("/doctors/:id/slots", func(c *gin.Context) {
 		doctorID, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -101,12 +104,13 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при добавлении слота"})
 			return
 		}
+
 		s.DoctorID = doctorID
 		s.IsAvailable = true
 		c.JSON(http.StatusCreated, s)
 	})
 
-	// Получить слоты по врачу
+	// ─── Получить слоты по врачу ───
 	r.GET("/doctors/:id/slots", func(c *gin.Context) {
 		doctorID, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -115,7 +119,8 @@ func main() {
 		}
 
 		rows, err := db.Query(
-			`SELECT id, start_time, end_time, is_available FROM schedule_slots WHERE doctor_id = $1`,
+			`SELECT id, start_time, end_time, is_available
+			 FROM schedule_slots WHERE doctor_id = $1`,
 			doctorID,
 		)
 		if err != nil {
@@ -132,6 +137,7 @@ func main() {
 				slots = append(slots, s)
 			}
 		}
+
 		c.JSON(http.StatusOK, slots)
 	})
 
