@@ -5,103 +5,85 @@ import {
     updateAppointmentStatus,
     getMySlots,
     createSlot,
-    updateSlot,
     deleteSlot,
 } from '../services/appointmentService'
 
 export default function DoctorDashboard() {
     const [tab, setTab] = useState('appointments') // 'appointments' | 'slots'
 
-    // Appointments
+    // Записи и слоты
     const [appointments, setAppointments] = useState([])
-
-    // Slots
     const [slots, setSlots] = useState([])
 
-    // New/editing slot fields
-    const [editingSlot, setEditingSlot] = useState(null)
-    const [slotDate, setSlotDate] = useState('')
-    const [slotStart, setSlotStart] = useState('')
-    const [slotEnd, setSlotEnd] = useState('')
+    // Поля для создания нового слота
+    const [newDate, setNewDate] = useState('')
+    const [newStart, setNewStart] = useState('')
+    const [newEnd, setNewEnd] = useState('')
 
-    // Load appointments when tab is 'appointments'
+    // Загрузить записи при переключении на вкладку "Записи"
     useEffect(() => {
         if (tab !== 'appointments') return
         getMyAppointments()
             .then(setAppointments)
-            .catch(() => alert('Не удалось загрузить записи'))
+            .catch(err => {
+                console.error(err)
+                alert('Не удалось загрузить записи')
+            })
     }, [tab])
 
-    // Load slots when tab is 'slots'
+    // Загрузить слоты при переключении на вкладку "Слоты"
     useEffect(() => {
         if (tab !== 'slots') return
         getMySlots()
             .then(setSlots)
-            .catch(() => alert('Не удалось загрузить слоты'))
+            .catch(err => {
+                console.error(err)
+                alert('Не удалось загрузить слоты')
+            })
     }, [tab])
 
-    // Handlers for appointments
-    const onChangeAppointmentStatus = async (id, status) => {
+    // Подтвердить или отменить запись
+    const handleUpdateAppointment = async (id, status) => {
         try {
             await updateAppointmentStatus(id, status)
-            setAppointments((prev) =>
-                prev.map((a) => (a.id === id ? { ...a, status } : a))
+            setAppointments(prev =>
+                prev.map(a => (a.id === id ? { ...a, status } : a))
             )
-        } catch {
-            alert('Не удалось обновить статус')
+        } catch (err) {
+            console.error(err)
+            alert('Не удалось обновить статус записи')
         }
     }
 
-    // Handlers for slots
-    const resetSlotForm = () => {
-        setEditingSlot(null)
-        setSlotDate('')
-        setSlotStart('')
-        setSlotEnd('')
-    }
-
-    const onSaveSlot = async () => {
-        if (!slotDate || !slotStart || !slotEnd) {
+    // Добавить новый слот
+    const handleAddSlot = async () => {
+        if (!newDate || !newStart || !newEnd) {
             return alert('Укажите дату, время начала и время конца')
         }
         try {
-            let saved
-            if (editingSlot) {
-                saved = await updateSlot(editingSlot.id, {
-                    date: slotDate,
-                    start_time: slotStart,
-                    end_time: slotEnd,
-                })
-                setSlots((prev) =>
-                    prev.map((s) => (s.id === saved.id ? saved : s))
-                )
-            } else {
-                saved = await createSlot({
-                    date: slotDate,
-                    start_time: slotStart,
-                    end_time: slotEnd,
-                })
-                setSlots((prev) => [...prev, saved])
-            }
-            resetSlotForm()
+            const slot = await createSlot({
+                date: newDate,
+                start_time: newStart,
+                end_time: newEnd,
+            })
+            setSlots(prev => [...prev, slot])
+            setNewDate('')
+            setNewStart('')
+            setNewEnd('')
         } catch (err) {
+            console.error(err)
             alert(err.message)
         }
     }
 
-    const onEditSlot = (slot) => {
-        setEditingSlot(slot)
-        setSlotDate(slot.date)
-        setSlotStart(slot.start_time)
-        setSlotEnd(slot.end_time)
-    }
-
-    const onDeleteSlot = async (id) => {
+    // Удалить слот
+    const handleDeleteSlot = async id => {
         if (!window.confirm('Удалить этот слот?')) return
         try {
             await deleteSlot(id)
-            setSlots((prev) => prev.filter((s) => s.id !== id))
-        } catch {
+            setSlots(prev => prev.filter(s => s.id !== id))
+        } catch (err) {
+            console.error(err)
             alert('Не удалось удалить слот')
         }
     }
@@ -110,155 +92,138 @@ export default function DoctorDashboard() {
         <div className="min-h-screen bg-gray-900 text-gray-100 p-6">
             <h1 className="text-3xl font-bold mb-6">Панель врача</h1>
 
-            {/* Tabs */}
+            {/* Навигация */}
             <div className="flex space-x-4 mb-8">
                 <button
                     onClick={() => setTab('appointments')}
-                    className={`px-4 py-2 rounded ${
+                    className={
                         tab === 'appointments'
-                            ? 'bg-purple-600'
-                            : 'bg-gray-700 hover:bg-gray-600'
-                    }`}
+                            ? 'px-4 py-2 bg-purple-600 rounded'
+                            : 'px-4 py-2 bg-gray-700 rounded hover:bg-gray-600'
+                    }
                 >
                     Записи
                 </button>
                 <button
                     onClick={() => setTab('slots')}
-                    className={`px-4 py-2 rounded ${
+                    className={
                         tab === 'slots'
-                            ? 'bg-purple-600'
-                            : 'bg-gray-700 hover:bg-gray-600'
-                    }`}
+                            ? 'px-4 py-2 bg-purple-600 rounded'
+                            : 'px-4 py-2 bg-gray-700 rounded hover:bg-gray-600'
+                    }
                 >
                     Слоты
                 </button>
             </div>
 
             {tab === 'appointments' && (
-                <div className="space-y-4">
+                <>
                     {appointments.length === 0 ? (
                         <p>Нет записей.</p>
                     ) : (
-                        appointments.map((a) => (
-                            <div
-                                key={a.id}
-                                className="bg-gray-800 p-4 rounded-lg flex justify-between items-center"
-                            >
-                                <div>
-                                    <div className="font-semibold">{a.patient_name}</div>
-                                    <div className="text-sm text-gray-400">
-                                        {a.date} в {a.time}
-                                    </div>
-                                    <div className="text-sm">
-                                        Статус:{' '}
-                                        <span
-                                            className={
-                                                a.status === 'confirmed'
-                                                    ? 'text-green-400'
-                                                    : a.status === 'canceled'
-                                                        ? 'text-red-400'
-                                                        : 'text-yellow-400'
-                                            }
-                                        >
-                      {a.status}
-                    </span>
-                                    </div>
-                                </div>
-                                <div className="space-x-2">
-                                    {a.status !== 'confirmed' && (
-                                        <button
-                                            onClick={() =>
-                                                onChangeAppointmentStatus(a.id, 'confirmed')
-                                            }
-                                            className="px-3 py-1 bg-green-600 rounded hover:bg-green-500"
-                                        >
-                                            Подтвердить
-                                        </button>
-                                    )}
-                                    {a.status !== 'canceled' && (
-                                        <button
-                                            onClick={() =>
-                                                onChangeAppointmentStatus(a.id, 'canceled')
-                                            }
-                                            className="px-3 py-1 bg-red-600 rounded hover:bg-red-500"
-                                        >
-                                            Отменить
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-
-            {tab === 'slots' && (
-                <div>
-                    <h2 className="text-2xl font-semibold mb-4">Управление слотами</h2>
-
-                    {/* Slot form */}
-                    <div className="bg-gray-800 p-6 rounded-lg mb-6 grid gap-4 sm:grid-cols-4">
-                        <input
-                            type="date"
-                            value={slotDate}
-                            onChange={(e) => setSlotDate(e.target.value)}
-                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
-                        />
-                        <input
-                            type="time"
-                            value={slotStart}
-                            onChange={(e) => setSlotStart(e.target.value)}
-                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
-                        />
-                        <input
-                            type="time"
-                            value={slotEnd}
-                            onChange={(e) => setSlotEnd(e.target.value)}
-                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
-                        />
-                        <button
-                            onClick={onSaveSlot}
-                            className="bg-purple-600 hover:bg-purple-500 text-white font-medium rounded px-4 py-2"
-                        >
-                            {editingSlot ? 'Сохранить' : 'Добавить'} слот
-                        </button>
-                    </div>
-
-                    {/* Slots list */}
-                    {slots.length === 0 ? (
-                        <p>Нет доступных слотов.</p>
-                    ) : (
-                        <div className="space-y-2">
-                            {slots.map((s) => (
+                        <div className="space-y-4">
+                            {appointments.map(a => (
                                 <div
-                                    key={s.id}
-                                    className="bg-gray-800 p-4 rounded-lg flex justify-between items-center"
+                                    key={a.id}
+                                    className="bg-gray-800 p-4 rounded flex justify-between items-center"
                                 >
                                     <div>
-                                        <div className="font-medium">{s.date}</div>
+                                        <div className="font-medium">{a.patient_name}</div>
                                         <div className="text-sm text-gray-400">
-                                            {s.start_time} — {s.end_time}
+                                            {a.date} в {a.time}
                                         </div>
+                                        <div className="text-sm">Статус: {a.status}</div>
                                     </div>
                                     <div className="space-x-2">
-                                        <button
-                                            onClick={() => onEditSlot(s)}
-                                            className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-500"
-                                        >
-                                            Редактировать
-                                        </button>
-                                        <button
-                                            onClick={() => onDeleteSlot(s.id)}
-                                            className="px-3 py-1 bg-red-600 rounded hover:bg-red-500"
-                                        >
-                                            Удалить
-                                        </button>
+                                        {a.status !== 'confirmed' && (
+                                            <button
+                                                onClick={() =>
+                                                    handleUpdateAppointment(a.id, 'confirmed')
+                                                }
+                                                className="px-3 py-1 bg-green-600 rounded hover:bg-green-500"
+                                            >
+                                                Подтвердить
+                                            </button>
+                                        )}
+                                        {a.status !== 'canceled' && (
+                                            <button
+                                                onClick={() =>
+                                                    handleUpdateAppointment(a.id, 'canceled')
+                                                }
+                                                className="px-3 py-1 bg-red-600 rounded hover:bg-red-500"
+                                            >
+                                                Отменить
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
                         </div>
                     )}
-                </div>
+                </>
+            )}
+
+            {tab === 'slots' && (
+                <>
+                    <h2 className="text-2xl font-semibold mb-4">Управление слотами</h2>
+
+                    {/* Форма создания слота */}
+                    <div className="flex flex-wrap gap-4 mb-6">
+                        <input
+                            type="date"
+                            value={newDate}
+                            onChange={e => setNewDate(e.target.value)}
+                            className="bg-gray-700 px-3 py-1 rounded"
+                        />
+                        <input
+                            type="time"
+                            value={newStart}
+                            onChange={e => setNewStart(e.target.value)}
+                            className="bg-gray-700 px-3 py-1 rounded"
+                        />
+                        <input
+                            type="time"
+                            value={newEnd}
+                            onChange={e => setNewEnd(e.target.value)}
+                            className="bg-gray-700 px-3 py-1 rounded"
+                        />
+                        <button
+                            onClick={handleAddSlot}
+                            className="px-4 py-1 bg-purple-600 rounded hover:bg-purple-500"
+                        >
+                            Добавить слот
+                        </button>
+                    </div>
+
+                    {/* Список слотов */}
+                    {slots.length === 0 ? (
+                        <p>Нет доступных слотов.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {slots.map(s => (
+                                <div
+                                    key={s.id}
+                                    className="bg-gray-800 p-3 rounded flex justify-between items-center"
+                                >
+                                    <div className="text-sm">
+                    <span className="font-medium">
+                      {s.StartTime.slice(0, 10)}
+                    </span>{' '}
+                                        <span>
+                      {s.StartTime.slice(11, 16)} — {s.EndTime.slice(11, 16)}
+                    </span>
+                                    </div>
+                                    <button
+                                        onClick={() => handleDeleteSlot(s.id)}
+                                        className="text-red-500 hover:text-red-400"
+                                    >
+                                        Удалить
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )

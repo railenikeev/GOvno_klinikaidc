@@ -4,9 +4,11 @@ const API = '/api'
 
 function authHeaders() {
     const token = localStorage.getItem('token')
+    const userId = localStorage.getItem('user_id')  // должны сохранять при логине
     return {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        'X-User-ID': userId || '',                   // передаём ID доктора
     }
 }
 
@@ -34,7 +36,7 @@ export async function updateAppointmentStatus(appointmentId, status) {
 
 /* ──────────── SLOTS (Schedules) ──────────── */
 
-// Fetch all slots (schedules) belonging to the logged-in doctor
+// Fetch all slots for current doctor
 export async function getMySlots() {
     const res = await fetch(`${API}/schedules/my`, {
         headers: authHeaders(),
@@ -59,7 +61,6 @@ export async function createSlot({ date, start_time, end_time }) {
 }
 
 // Update an existing slot
-// payload can include any of date, start_time, end_time
 export async function updateSlot(slotId, { date, start_time, end_time }) {
     const res = await fetch(`${API}/schedules/${slotId}`, {
         method: 'PATCH',
