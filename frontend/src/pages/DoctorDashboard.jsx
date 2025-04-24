@@ -1,144 +1,265 @@
-import React, { useEffect, useState } from 'react';
+// frontend/src/pages/DoctorDashboard.jsx
+import React, { useEffect, useState } from 'react'
 import {
     getMyAppointments,
-    updateAppointment,
-} from '../services/appointmentService';
+    updateAppointmentStatus,
+    getMySlots,
+    createSlot,
+    updateSlot,
+    deleteSlot,
+} from '../services/appointmentService'
 
 export default function DoctorDashboard() {
-    const [appointments, setAppointments] = useState([]);
-    const [selectedStatus, setSelectedStatus] = useState('all');
-    const [selectedDate, setSelectedDate] = useState('');
+    const [tab, setTab] = useState('appointments') // 'appointments' | 'slots'
 
+    // Appointments
+    const [appointments, setAppointments] = useState([])
+
+    // Slots
+    const [slots, setSlots] = useState([])
+
+    // New/editing slot fields
+    const [editingSlot, setEditingSlot] = useState(null)
+    const [slotDate, setSlotDate] = useState('')
+    const [slotStart, setSlotStart] = useState('')
+    const [slotEnd, setSlotEnd] = useState('')
+
+    // Load appointments when tab is 'appointments'
     useEffect(() => {
+        if (tab !== 'appointments') return
         getMyAppointments()
             .then(setAppointments)
-            .catch(() => alert('Ошибка загрузки приёмов'));
-    }, []);
+            .catch(() => alert('Не удалось загрузить записи'))
+    }, [tab])
 
-    const handleUpdate = async (id, data) => {
+    // Load slots when tab is 'slots'
+    useEffect(() => {
+        if (tab !== 'slots') return
+        getMySlots()
+            .then(setSlots)
+            .catch(() => alert('Не удалось загрузить слоты'))
+    }, [tab])
+
+    // Handlers for appointments
+    const onChangeAppointmentStatus = async (id, status) => {
         try {
-            await updateAppointment(id, data);
+            await updateAppointmentStatus(id, status)
             setAppointments((prev) =>
-                prev.map((a) => (a.id === id ? { ...a, ...data } : a))
-            );
-        } catch (err) {
-            alert('Ошибка при обновлении приёма');
+                prev.map((a) => (a.id === id ? { ...a, status } : a))
+            )
+        } catch {
+            alert('Не удалось обновить статус')
         }
-    };
+    }
 
-    const filteredAppointments = appointments
-        .filter((a) => {
-            const matchStatus =
-                selectedStatus === 'all' || a.status === selectedStatus;
+    // Handlers for slots
+    const resetSlotForm = () => {
+        setEditingSlot(null)
+        setSlotDate('')
+        setSlotStart('')
+        setSlotEnd('')
+    }
 
-            const matchDate =
-                !selectedDate ||
-                new Date(`${a.date}T00:00`) >= new Date(`${selectedDate}T00:00`);
+    const onSaveSlot = async () => {
+        if (!slotDate || !slotStart || !slotEnd) {
+            return alert('Укажите дату, время начала и время конца')
+        }
+        try {
+            let saved
+            if (editingSlot) {
+                saved = await updateSlot(editingSlot.id, {
+                    date: slotDate,
+                    start_time: slotStart,
+                    end_time: slotEnd,
+                })
+                setSlots((prev) =>
+                    prev.map((s) => (s.id === saved.id ? saved : s))
+                )
+            } else {
+                saved = await createSlot({
+                    date: slotDate,
+                    start_time: slotStart,
+                    end_time: slotEnd,
+                })
+                setSlots((prev) => [...prev, saved])
+            }
+            resetSlotForm()
+        } catch (err) {
+            alert(err.message)
+        }
+    }
 
-            return matchStatus && matchDate;
-        })
-        .sort((a, b) => {
-            const aTime = new Date(`${a.date}T${a.time}`);
-            const bTime = new Date(`${b.date}T${b.time}`);
-            return aTime - bTime;
-        });
+    const onEditSlot = (slot) => {
+        setEditingSlot(slot)
+        setSlotDate(slot.date)
+        setSlotStart(slot.start_time)
+        setSlotEnd(slot.end_time)
+    }
+
+    const onDeleteSlot = async (id) => {
+        if (!window.confirm('Удалить этот слот?')) return
+        try {
+            await deleteSlot(id)
+            setSlots((prev) => prev.filter((s) => s.id !== id))
+        } catch {
+            alert('Не удалось удалить слот')
+        }
+    }
 
     return (
-        <div className="min-h-[calc(100vh-128px)] bg-gray-950 text-gray-200 font-mono px-4 py-12 flex justify-center">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl shadow-xl p-8 max-w-4xl w-full">
-                <h2 className="text-2xl font-bold text-purple-400 mb-6">
-                    Приёмы пациентов
-                </h2>
+        <div className="min-h-screen bg-gray-900 text-gray-100 p-6">
+            <h1 className="text-3xl font-bold mb-6">Панель врача</h1>
 
-                {/* Фильтры */}
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">Статус</label>
-                        <select
-                            value={selectedStatus}
-                            onChange={(e) => setSelectedStatus(e.target.value)}
-                            className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm text-gray-100 focus:outline-none"
-                        >
-                            <option value="all">Все</option>
-                            <option value="Запланирован">Запланирован</option>
-                            <option value="Завершён">Завершён</option>
-                            <option value="Неявка">Неявка</option>
-                        </select>
-                    </div>
+            {/* Tabs */}
+            <div className="flex space-x-4 mb-8">
+                <button
+                    onClick={() => setTab('appointments')}
+                    className={`px-4 py-2 rounded ${
+                        tab === 'appointments'
+                            ? 'bg-purple-600'
+                            : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
+                >
+                    Записи
+                </button>
+                <button
+                    onClick={() => setTab('slots')}
+                    className={`px-4 py-2 rounded ${
+                        tab === 'slots'
+                            ? 'bg-purple-600'
+                            : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
+                >
+                    Слоты
+                </button>
+            </div>
 
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">С даты</label>
-                        <input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm text-gray-100 focus:outline-none"
-                        />
-                    </div>
-                </div>
-
-                {filteredAppointments.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                        Нет записей по выбранным фильтрам.
-                    </p>
-                ) : (
-                    <div className="space-y-6">
-                        {filteredAppointments.map((a) => (
+            {tab === 'appointments' && (
+                <div className="space-y-4">
+                    {appointments.length === 0 ? (
+                        <p>Нет записей.</p>
+                    ) : (
+                        appointments.map((a) => (
                             <div
                                 key={a.id}
-                                className="bg-gray-800 border border-gray-700 rounded-lg p-4"
+                                className="bg-gray-800 p-4 rounded-lg flex justify-between items-center"
                             >
-                                <div className="text-sm text-gray-300 space-y-1 mb-4">
-                                    <p>
-                                        <span className="text-gray-400">Дата:</span> {a.date}{' '}
-                                        {a.time}
-                                    </p>
-                                    <p>
-                                        <span className="text-gray-400">Пациент:</span>{' '}
-                                        {a.patient || '—'}
-                                    </p>
-                                    <p>
-                                        <span className="text-gray-400">Клиника:</span> {a.clinic}
-                                    </p>
+                                <div>
+                                    <div className="font-semibold">{a.patient_name}</div>
+                                    <div className="text-sm text-gray-400">
+                                        {a.date} в {a.time}
+                                    </div>
+                                    <div className="text-sm">
+                                        Статус:{' '}
+                                        <span
+                                            className={
+                                                a.status === 'confirmed'
+                                                    ? 'text-green-400'
+                                                    : a.status === 'canceled'
+                                                        ? 'text-red-400'
+                                                        : 'text-yellow-400'
+                                            }
+                                        >
+                      {a.status}
+                    </span>
+                                    </div>
                                 </div>
-
-                                <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
-                                    <select
-                                        value={a.status}
-                                        onChange={(e) =>
-                                            handleUpdate(a.id, { status: e.target.value })
-                                        }
-                                        className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm text-gray-100 focus:outline-none"
-                                    >
-                                        <option value="Запланирован">Запланирован</option>
-                                        <option value="Завершён">Завершён</option>
-                                        <option value="Неявка">Неявка</option>
-                                    </select>
-
-                                    <input
-                                        type="text"
-                                        placeholder="Комментарий / диагноз"
-                                        value={a.comment || ''}
-                                        onChange={(e) =>
-                                            setAppointments((prev) =>
-                                                prev.map((item) =>
-                                                    item.id === a.id
-                                                        ? { ...item, comment: e.target.value }
-                                                        : item
-                                                )
-                                            )
-                                        }
-                                        onBlur={() =>
-                                            handleUpdate(a.id, { comment: a.comment || '' })
-                                        }
-                                        className="flex-1 bg-gray-800 border border-gray-700 px-3 py-1 text-sm text-gray-100 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    />
+                                <div className="space-x-2">
+                                    {a.status !== 'confirmed' && (
+                                        <button
+                                            onClick={() =>
+                                                onChangeAppointmentStatus(a.id, 'confirmed')
+                                            }
+                                            className="px-3 py-1 bg-green-600 rounded hover:bg-green-500"
+                                        >
+                                            Подтвердить
+                                        </button>
+                                    )}
+                                    {a.status !== 'canceled' && (
+                                        <button
+                                            onClick={() =>
+                                                onChangeAppointmentStatus(a.id, 'canceled')
+                                            }
+                                            className="px-3 py-1 bg-red-600 rounded hover:bg-red-500"
+                                        >
+                                            Отменить
+                                        </button>
+                                    )}
                                 </div>
                             </div>
-                        ))}
+                        ))
+                    )}
+                </div>
+            )}
+
+            {tab === 'slots' && (
+                <div>
+                    <h2 className="text-2xl font-semibold mb-4">Управление слотами</h2>
+
+                    {/* Slot form */}
+                    <div className="bg-gray-800 p-6 rounded-lg mb-6 grid gap-4 sm:grid-cols-4">
+                        <input
+                            type="date"
+                            value={slotDate}
+                            onChange={(e) => setSlotDate(e.target.value)}
+                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
+                        />
+                        <input
+                            type="time"
+                            value={slotStart}
+                            onChange={(e) => setSlotStart(e.target.value)}
+                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
+                        />
+                        <input
+                            type="time"
+                            value={slotEnd}
+                            onChange={(e) => setSlotEnd(e.target.value)}
+                            className="bg-gray-700 px-3 py-2 rounded focus:outline-none"
+                        />
+                        <button
+                            onClick={onSaveSlot}
+                            className="bg-purple-600 hover:bg-purple-500 text-white font-medium rounded px-4 py-2"
+                        >
+                            {editingSlot ? 'Сохранить' : 'Добавить'} слот
+                        </button>
                     </div>
-                )}
-            </div>
+
+                    {/* Slots list */}
+                    {slots.length === 0 ? (
+                        <p>Нет доступных слотов.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {slots.map((s) => (
+                                <div
+                                    key={s.id}
+                                    className="bg-gray-800 p-4 rounded-lg flex justify-between items-center"
+                                >
+                                    <div>
+                                        <div className="font-medium">{s.date}</div>
+                                        <div className="text-sm text-gray-400">
+                                            {s.start_time} — {s.end_time}
+                                        </div>
+                                    </div>
+                                    <div className="space-x-2">
+                                        <button
+                                            onClick={() => onEditSlot(s)}
+                                            className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-500"
+                                        >
+                                            Редактировать
+                                        </button>
+                                        <button
+                                            onClick={() => onDeleteSlot(s.id)}
+                                            className="px-3 py-1 bg-red-600 rounded hover:bg-red-500"
+                                        >
+                                            Удалить
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
-    );
+    )
 }
