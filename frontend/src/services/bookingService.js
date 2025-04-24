@@ -58,7 +58,7 @@ export async function createAppointment({ doctor_id, date, time }) {
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Ошибка при создании записи');
+        throw new Error(err.error || 'Вы записаны');
     }
     return res.json();
 }
