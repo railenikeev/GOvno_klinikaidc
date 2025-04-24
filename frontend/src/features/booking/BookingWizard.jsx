@@ -1,177 +1,210 @@
-import React, { useEffect, useState } from 'react'
-// ⚠️ путь вверх на два уровня, потому что файл лежит в src/features/booking/
+// frontend/src/features/booking/BookingWizard.jsx
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-    getClinics,
-    getDoctors,
-    getSchedule,
+    fetchClinics,
+    fetchDoctors,
+    fetchAvailableTimes,
     createAppointment,
-} from '../../services/bookingService'
+} from '../../services/bookingService';
+
+const steps = ['Город', 'Клиника', 'Врач', 'Время'];
 
 export default function BookingWizard() {
-    /* ──────────────── state ──────────────── */
-    const [step, setStep] = useState(0)
-    const [loading, setLoading] = useState(false)
+    const [step, setStep] = useState(0);
 
-    // выборы пользователя
-    const [clinics, setClinics] = useState([])
-    const [clinicId, setClinicId] = useState(null)
+    // ───── исходные данные ─────
+    const [clinics, setClinics]    = useState([]);
+    const [clinicId, setClinicId]  = useState(null);
 
-    const [doctors, setDoctors] = useState([])
-    const [doctorId, setDoctorId] = useState(null)
+    const [doctors, setDoctors]    = useState([]);
+    const [doctorId, setDoctorId]  = useState(null);
 
-    const [schedule, setSchedule] = useState([])
-    const [slotId, setSlotId] = useState(null)
+    const [date, setDate]          = useState('');
+    const [slots, setSlots]        = useState([]);
+    const [time, setTime]          = useState('');
 
-    /* ──────────────── first load ──────────────── */
+    /** загрузка всех клиник один раз */
     useEffect(() => {
-        ;(async () => {
-            const data = await getClinics().catch(() => [])
-            setClinics(data)
-        })()
-    }, [])
+        fetchClinics()
+            .then(setClinics)
+            .catch(() => alert('Не удалось загрузить клиники'));
+    }, []);
 
-    /* ──────────────── handlers ──────────────── */
-    async function handleSelectClinic(id) {
-        setClinicId(id)
-        setLoading(true)
-        try {
-            const list = await getDoctors(id)
-            setDoctors(list)
-            setStep(1)
-        } finally {
-            setLoading(false)
-        }
-    }
+    /** уникальные города из полученных клиник */
+    const cities = useMemo(() => {
+        const set = new Set(clinics.map(c => c.city));
+        return Array.from(set).sort();
+    }, [clinics]);
 
-    async function handleSelectDoctor(id) {
-        setDoctorId(id)
-        setLoading(true)
-        try {
-            const slots = await getSchedule(id)
-            setSchedule(slots)
-            setStep(2)
-        } finally {
-            setLoading(false)
-        }
-    }
+    /** клиники выбранного города */
+    const [city, setCity] = useState('');
+    const cityClinics     = clinics.filter(c => c.city === city);
 
-    async function handleConfirm() {
-        if (!slotId) return
-        setLoading(true)
-        try {
-            await createAppointment({ slotId })
-            setStep(3)
-        } finally {
-            setLoading(false)
-        }
-    }
+    /** врачи по выбранной клинике */
+    useEffect(() => {
+        if (!clinicId) return;
+        fetchDoctors(clinicId)
+            .then(setDoctors)
+            .catch(() => alert('Не удалось загрузить врачей'));
+    }, [clinicId]);
 
-    function reset() {
-        setStep(0)
-        setClinicId(null)
-        setDoctorId(null)
-        setSlotId(null)
-    }
+    /** слоты по врачу + дате */
+    useEffect(() => {
+        if (!doctorId || !date) return;
+        fetchAvailableTimes(doctorId, date)
+            .then(setSlots)
+            .catch(() => alert('Не удалось загрузить свободное время'));
+    }, [doctorId, date]);
 
-    /* ──────────────── ui helpers ──────────────── */
-    const steps = ['Клиника', 'Врач', 'Время', 'Готово']
+    /* ─────────── UI ─────────── */
 
-    function Stepper() {
-        return (
-            <div className="flex items-center mb-6 select-none">
-                {steps.map((label, i) => (
-                    <React.Fragment key={label}>
+    return (
+        <div className="mx-auto max-w-4xl py-8 px-4">
+            {/* Stepper */}
+            <div className="flex items-center justify-between mb-10">
+                {steps.map((s, i) => (
+                    <div key={s} className="flex-1 flex flex-col items-center">
                         <div
-                            className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium
-                ${i <= step ? 'bg-purple-600' : 'bg-gray-700'}`}
+                            className={`w-8 h-8 flex items-center justify-center rounded-full
+                ${step === i ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300'}`}
                         >
                             {i + 1}
                         </div>
-                        {i < steps.length - 1 && <div className="flex-1 h-px bg-gray-700 mx-1 sm:mx-2" />}
-                    </React.Fragment>
+                        <span className="mt-2 text-sm text-gray-400">{s}</span>
+                        {i < steps.length - 1 && (
+                            <div className="h-px bg-gray-700 flex-1 w-full" />
+                        )}
+                    </div>
                 ))}
             </div>
-        )
-    }
 
-    /* ──────────────── render ──────────────── */
-    return (
-        <div className="max-w-3xl mx-auto p-4 text-gray-100">
-            <Stepper />
-
-            {/* step 0 — клиники */}
+            {/* Шаг 0 — города */}
             {step === 0 && (
-                <div className="grid sm:grid-cols-2 gap-4">
-                    {clinics.map(cl => (
+                <div className="grid gap-4 sm:grid-cols-3">
+                    {cities.map(ct => (
                         <button
-                            key={cl.id}
-                            onClick={() => handleSelectClinic(cl.id)}
-                            className="border border-gray-700 rounded-lg p-4 hover:bg-gray-800 text-left transition"
+                            key={ct}
+                            onClick={() => {
+                                setCity(ct);
+                                setStep(1);
+                            }}
+                            className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-white"
                         >
-                            <p className="font-medium mb-1">{cl.name}</p>
-                            <p className="text-sm text-gray-400">{cl.city}</p>
+                            {ct}
                         </button>
                     ))}
                 </div>
             )}
 
-            {/* step 1 — врачи */}
+            {/* Шаг 1 — клиники */}
             {step === 1 && (
-                <div className="grid sm:grid-cols-2 gap-4">
-                    {doctors.map(doc => (
-                        <button
-                            key={doc.id}
-                            onClick={() => handleSelectDoctor(doc.id)}
-                            className="border border-gray-700 rounded-lg p-4 hover:bg-gray-800 text-left transition"
-                        >
-                            <p className="font-medium mb-1">{doc.full_name}</p>
-                            <p className="text-sm text-gray-400">{doc.specialization}</p>
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            {/* step 2 — слоты */}
-            {step === 2 && (
-                <div>
-                    <div className="grid sm:grid-cols-3 gap-3 mb-6">
-                        {schedule.map(slot => (
+                <>
+                    <p className="mb-4 text-gray-300">{city}</p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        {cityClinics.map(cl => (
                             <button
-                                key={slot.id}
-                                onClick={() => setSlotId(slot.id)}
-                                className={`border rounded-lg p-2 text-sm transition
-                  ${slotId === slot.id ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'}`}
+                                key={cl.id}
+                                onClick={() => {
+                                    setClinicId(cl.id);
+                                    setStep(2);
+                                }}
+                                className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-left"
                             >
-                                {slot.date} {slot.time}
+                                <h3 className="text-lg text-white font-semibold">{cl.name}</h3>
+                                <p className="text-sm text-gray-400">{cl.address}</p>
                             </button>
                         ))}
                     </div>
-                    <button
-                        disabled={!slotId || loading}
-                        onClick={handleConfirm}
-                        className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg px-4 py-2"
-                    >
-                        Записаться
-                    </button>
-                </div>
+                </>
             )}
 
-            {/* step 3 — готово */}
+            {/* Шаг 2 — врачи */}
+            {step === 2 && (
+                <>
+                    <p className="mb-4 text-gray-300">
+                        {cityClinics.find(c => c.id === clinicId)?.name}
+                    </p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        {doctors.map(d => (
+                            <button
+                                key={d.id}
+                                onClick={() => {
+                                    setDoctorId(d.id);
+                                    setStep(3);
+                                }}
+                                className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-left"
+                            >
+                                <h3 className="text-white">{d.full_name}</h3>
+                                <p className="text-sm text-gray-400">{d.specialization}</p>
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
+
+            {/* Шаг 3 — дата / время */}
             {step === 3 && (
-                <div className="text-center space-y-4">
-                    <p className="text-xl font-semibold">Запись успешно создана!</p>
-                    <button onClick={reset} className="bg-purple-600 hover:bg-purple-500 rounded-lg px-4 py-2">
-                        Новая запись
-                    </button>
-                </div>
-            )}
+                <>
+                    <p className="mb-6 text-gray-300">
+                        {cityClinics.find(c => c.id === clinicId)?.name} →{' '}
+                        {doctors.find(d => d.id === doctorId)?.full_name}
+                    </p>
 
-            {/* глобальный оверлей загрузки */}
-            {loading && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center text-lg">
-                    Загрузка…
-                </div>
+                    <input
+                        type="date"
+                        value={date}
+                        onChange={e => setDate(e.target.value)}
+                        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2
+                       text-gray-100 focus:ring-2 focus:ring-purple-600 mb-6"
+                    />
+
+                    {date && (
+                        <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+                            {slots.length === 0 && (
+                                <p className="text-gray-400 col-span-full">Нет свободных слотов</p>
+                            )}
+                            {slots.map(t => (
+                                <button
+                                    key={t}
+                                    onClick={() => setTime(t)}
+                                    className={`rounded-lg px-3 py-2 ${
+                                        t === time
+                                            ? 'bg-purple-600 text-white'
+                                            : 'bg-gray-800 hover:bg-gray-700 text-gray-100'
+                                    }`}
+                                >
+                                    {t}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {time && (
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await createAppointment({ doctor_id: doctorId, date, time });
+                                    alert('Запись создана!');
+                                    // сброс до первого шага
+                                    setStep(0);
+                                    setCity('');
+                                    setClinicId(null);
+                                    setDoctorId(null);
+                                    setDate('');
+                                    setTime('');
+                                } catch (err) {
+                                    alert(err.message);
+                                }
+                            }}
+                            className="mt-8 bg-purple-600 hover:bg-purple-500
+                         rounded-lg px-6 py-3 text-white font-medium"
+                        >
+                            Подтвердить
+                        </button>
+                    )}
+                </>
             )}
         </div>
-    )
+    );
 }

@@ -4,85 +4,97 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 )
 
-func proxy(c *gin.Context, target string) {
-	client := &http.Client{}
-	req, err := http.NewRequest(c.Request.Method, target, c.Request.Body)
+// ---------------------------------------------------------------
+// proxy helper: полностью пробрасываем метод, body, headers,
+// path + query string     (ex.: /api/doctors?clinic_id=1      )
+// ---------------------------------------------------------------
+func proxy(c *gin.Context, targetBase string) {
+	// собираем полный URL: targetBase + original.Path + "?" + RawQuery
+	u, err := url.Parse(targetBase)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка проксирования"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "bad proxy target"})
 		return
 	}
-	// копируем заголовки
-	req.Header = c.Request.Header
+	u.Path += c.Param("path")           // может быть пусто
+	u.RawQuery = c.Request.URL.RawQuery // сохраняем query-строку
 
-	resp, err := client.Do(req)
+	req, err := http.NewRequest(c.Request.Method, u.String(), c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "сервис недоступен"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "proxy request error"})
+		return
+	}
+	req.Header = c.Request.Header // копируем все заголовки
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "upstream unavailable"})
 		return
 	}
 	defer resp.Body.Close()
 
-	// пробрасываем статус
+	// прокидываем статус и заголовки
 	c.Status(resp.StatusCode)
-	// пробрасываем заголовки
-	for k, values := range resp.Header {
-		for _, v := range values {
-			c.Writer.Header().Add(k, v)
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			c.Writer.Header().Add(k, vv)
 		}
 	}
-	// копируем тело ответа
-	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка копирования данных"})
-	}
+	_, _ = io.Copy(c.Writer, resp.Body)
 }
 
 func main() {
 	r := gin.Default()
 
-	// === USERS SERVICE ===
-	// всё под /api/users/*path идёт в users:8080
+	// ---------- USERS SERVICE -------------
 	r.Any("/api/users/*path", func(c *gin.Context) {
-		proxy(c, "http://users:8080"+c.Param("path"))
+		proxy(c, "http://users:8080")
+	})
+	// /api/doctors?clinic_id=...
+	r.Any("/api/doctors", func(c *gin.Context) {
+		// c.Param("path") будет пустой, но proxy добавит query
+		proxy(c, "http://users:8080")
 	})
 
-	// === CLINICS SERVICE ===
+	// ---------- CLINICS SERVICE -----------
 	r.Any("/api/clinics", func(c *gin.Context) {
 		proxy(c, "http://clinics:8087/clinics")
 	})
-	// clinics service – всё глубже (/api/clinics/:id, /assign-admin и т.д.)
 	r.Any("/api/clinics/*path", func(c *gin.Context) {
-		proxy(c, "http://clinics:8087/clinics"+c.Param("path"))
+		proxy(c, "http://clinics:8087/clinics")
 	})
 
-	// === SCHEDULES SERVICE ===
+	// ---------- SCHEDULES -----------------
 	r.Any("/api/schedules/*path", func(c *gin.Context) {
-		proxy(c, "http://schedules:8082"+c.Param("path"))
+		proxy(c, "http://schedules:8082")
 	})
 
-	// === APPOINTMENTS SERVICE ===
+	// ---------- APPOINTMENTS --------------
 	r.Any("/api/appointments/*path", func(c *gin.Context) {
-		proxy(c, "http://appointments:8083"+c.Param("path"))
+		proxy(c, "http://appointments:8083")
 	})
 
-	// === MEDICAL RECORDS SERVICE ===
+	// ---------- MEDICAL RECORDS -----------
 	r.Any("/api/medical_records/*path", func(c *gin.Context) {
-		proxy(c, "http://medical_records:8084"+c.Param("path"))
+		proxy(c, "http://medical_records:8084")
 	})
 
-	// === PAYMENTS SERVICE ===
+	// ---------- PAYMENTS ------------------
 	r.Any("/api/payments/*path", func(c *gin.Context) {
-		proxy(c, "http://payments:8085"+c.Param("path"))
+		proxy(c, "http://payments:8085")
 	})
 
-	// === NOTIFICATIONS SERVICE ===
+	// ---------- NOTIFICATIONS -------------
 	r.Any("/api/notifications/*path", func(c *gin.Context) {
-		proxy(c, "http://notifications:8086"+c.Param("path"))
+		proxy(c, "http://notifications:8086")
 	})
 
+	log.Println("API-gateway listening on :8000")
 	if err := r.Run(":8000"); err != nil {
-		log.Fatal("Ошибка запуска API gateway:", err)
+		log.Fatalf("gateway start error: %v", err)
 	}
 }
