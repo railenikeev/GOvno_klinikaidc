@@ -1,3 +1,4 @@
+// clinic-system/appointments/main.go
 package main
 
 import (
@@ -6,17 +7,20 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
 type Appointment struct {
-	ID          int    `json:"id"`
-	PatientName string `json:"patient_name"`
-	Date        string `json:"date"`
-	Time        string `json:"time"`
-	Status      string `json:"status"`
+	ID          int       `json:"id"`
+	DoctorID    int       `json:"doctor_id"`
+	PatientName string    `json:"patient_name"`
+	Date        string    `json:"date"`
+	Time        string    `json:"time"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"-"`
 }
 
 func main() {
@@ -24,6 +28,7 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL не задан")
 	}
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("Ошибка подключения к БД:", err)
@@ -32,23 +37,22 @@ func main() {
 
 	r := gin.Default()
 
-	// GET /appointments/my
-	r.GET("/appointments/my", func(c *gin.Context) {
-		h := c.GetHeader("X-User-ID")
-		if h == "" {
+	// === Мои записи ===
+	r.GET("/my", func(c *gin.Context) {
+		user := c.GetHeader("X-User-ID")
+		if user == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
 			return
 		}
-		doctorID, err := strconv.Atoi(h)
+		doctorID, err := strconv.Atoi(user)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный X-User-ID"})
 			return
 		}
-
 		rows, err := db.Query(`
-			SELECT a.id, u.full_name, a.date, a.time, a.status
+			SELECT a.id, a.doctor_id, u.full_name, a.date, a.time, a.status
 			FROM appointments a
-			JOIN users u ON a.patient_id = u.id
+			JOIN users u ON u.id = a.patient_id
 			WHERE a.doctor_id = $1
 			ORDER BY a.date, a.time
 		`, doctorID)
@@ -58,24 +62,24 @@ func main() {
 		}
 		defer rows.Close()
 
-		var appts []Appointment
+		var apps []Appointment
 		for rows.Next() {
 			var a Appointment
-			if err := rows.Scan(&a.ID, &a.PatientName, &a.Date, &a.Time, &a.Status); err == nil {
-				appts = append(appts, a)
+			if err := rows.Scan(&a.ID, &a.DoctorID, &a.PatientName, &a.Date, &a.Time, &a.Status); err == nil {
+				apps = append(apps, a)
 			}
 		}
-		c.JSON(http.StatusOK, appts)
+		c.JSON(http.StatusOK, apps)
 	})
 
-	// PATCH /appointments/:id/status
-	r.PATCH("/appointments/:id/status", func(c *gin.Context) {
-		idParam := c.Param("id")
-		apptID, err := strconv.Atoi(idParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID записи"})
+	// === Обновить статус ===
+	r.PATCH("/:id/status", func(c *gin.Context) {
+		user := c.GetHeader("X-User-ID")
+		if user == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
 			return
 		}
+		// valdiate doctor owns appointment...
 		var in struct {
 			Status string `json:"status"`
 		}
@@ -83,15 +87,17 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
 			return
 		}
-		_, err = db.Exec(`UPDATE appointments SET status=$1 WHERE id=$2`, in.Status, apptID)
+		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка обновления статуса"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"id": apptID, "status": in.Status})
+		if _, err := db.Exec(`UPDATE appointments SET status=$1 WHERE id=$2`, in.Status, id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка обновления"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
-	if err := r.Run(":8083"); err != nil {
-		log.Fatalf("Ошибка запуска appointments_service: %v", err)
-	}
+	r.Run(":8083")
 }

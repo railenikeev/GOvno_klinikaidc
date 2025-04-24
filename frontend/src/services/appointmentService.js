@@ -3,52 +3,43 @@ const API = '/api';
 
 function authHeaders() {
     const token = localStorage.getItem('token');
-    return {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-    };
+    const userId = localStorage.getItem('userId');
+    const h = { 'Content-Type': 'application/json' };
+    if (token) h.Authorization = `Bearer ${token}`;
+    if (userId) h['X-User-ID'] = userId;
+    return h;
 }
 
-/* ──────────── APPOINTMENTS ──────────── */
-
-// Забирает все записи текущего врача
+// Fetch all appointments for the logged-in doctor
 export async function getMyAppointments() {
     const res = await fetch(`${API}/appointments/my`, {
         headers: authHeaders(),
     });
-    if (!res.ok) {
-        throw new Error('Не удалось загрузить записи');
-    }
+    if (!res.ok) throw new Error('Не удалось загрузить записи');
     return res.json();
 }
 
-// Меняет статус одной записи
+// Update status (confirmed / canceled / etc.) of a single appointment
 export async function updateAppointmentStatus(appointmentId, status) {
     const res = await fetch(`${API}/appointments/${appointmentId}/status`, {
         method: 'PATCH',
         headers: authHeaders(),
         body: JSON.stringify({ status }),
     });
-    if (!res.ok) {
-        throw new Error('Не удалось обновить статус записи');
-    }
+    if (!res.ok) throw new Error('Не удалось обновить статус записи');
     return res.json();
 }
 
-/* ──────────── SLOTS (Schedules) ──────────── */
-
-// Забирает все слоты текущего врача
+// Fetch my slots
 export async function getMySlots() {
     const res = await fetch(`${API}/schedules/my`, {
         headers: authHeaders(),
     });
-    if (!res.ok) {
-        throw new Error('Не удалось загрузить слоты');
-    }
+    if (!res.ok) throw new Error('Не удалось загрузить слоты');
     return res.json();
 }
 
-// Создаёт новый слот
+// Create a new slot
 export async function createSlot({ date, start_time, end_time }) {
     const res = await fetch(`${API}/schedules`, {
         method: 'POST',
@@ -60,14 +51,4 @@ export async function createSlot({ date, start_time, end_time }) {
         throw new Error(err.error || 'Ошибка при создании слота');
     }
     return res.json();
-}
-
-// Удаляет слот по ID
-export async function deleteSlot(slotId) {
-    const res = await fetch(`${API}/schedules/${slotId}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error('Не удалось удалить слот');
-    return null;
 }

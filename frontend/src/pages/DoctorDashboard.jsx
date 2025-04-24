@@ -5,74 +5,37 @@ import {
     updateAppointmentStatus,
     getMySlots,
     createSlot,
-    deleteSlot,
+    // ... delete/updateSlot по аналогии
 } from '../services/appointmentService';
 
 export default function DoctorDashboard() {
-    const [tab, setTab] = useState('appointments'); // 'appointments' | 'slots'
-
+    const [tab, setTab] = useState('appointments');
     const [appointments, setAppointments] = useState([]);
-    const [slots, setSlots]               = useState([]);
+    const [slots, setSlots] = useState([]);
 
-    // Новые поля для создания слота
-    const [newDate, setNewDate]     = useState('');
-    const [newStart, setNewStart]   = useState('');
-    const [newEnd, setNewEnd]       = useState('');
+    const [newDate, setNewDate] = useState('');
+    const [newStart, setNewStart] = useState('');
+    const [newEnd, setNewEnd] = useState('');
 
-    // Загрузка записей
     useEffect(() => {
-        if (tab !== 'appointments') return;
-        getMyAppointments()
-            .then(setAppointments)
-            .catch(err => {
-                console.error(err);
-                alert(err.message);
-                setAppointments([]); // чтобы не было undefined
-            });
-    }, [tab]);
-
-    // Загрузка слотов
-    useEffect(() => {
-        if (tab !== 'slots') return;
-        getMySlots()
-            .then(setSlots)
-            .catch(err => {
-                console.error(err);
-                alert(err.message);
-                setSlots([]); // защита от null
-            });
-    }, [tab]);
-
-    // Подтвердить / отменить запись
-    const handleUpdateAppointment = async (id, status) => {
-        try {
-            await updateAppointmentStatus(id, status);
-            setAppointments(prev =>
-                prev.map(a => (a.id === id ? { ...a, status } : a))
-            );
-        } catch (err) {
-            console.error(err);
-            alert(err.message);
+        if (tab === 'appointments') {
+            getMyAppointments()
+                .then(setAppointments)
+                .catch(err => alert(err.message));
         }
-    };
+        if (tab === 'slots') {
+            getMySlots()
+                .then(setSlots)
+                .catch(err => alert(err.message));
+        }
+    }, [tab]);
 
-    // Добавить слот
     const handleAddSlot = async () => {
-        if (!newDate || !newStart || !newEnd) {
-            return alert('Укажите все поля для нового слота');
-        }
         try {
-            const slot = await createSlot({
-                date: newDate,
-                start_time: newStart,
-                end_time: newEnd,
-            });
+            const slot = await createSlot({ date: newDate, start_time: newStart, end_time: newEnd });
             setSlots(prev => [...prev, slot]);
-            setNewDate('');
-            setNewStart('');
-            setNewEnd('');
+            setNewDate(''); setNewStart(''); setNewEnd('');
         } catch (err) {
-            console.error(err);
             alert(err.message);
         }
     };

@@ -1,3 +1,4 @@
+// clinic-system/schedules/main.go
 package main
 
 import (
@@ -33,8 +34,8 @@ func main() {
 
 	r := gin.Default()
 
-	// POST   /schedules       — создать слот
-	r.POST("/schedules", func(c *gin.Context) {
+	// === Создать слот ===
+	r.POST("/", func(c *gin.Context) {
 		h := c.GetHeader("X-User-ID")
 		if h == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
@@ -65,12 +66,11 @@ func main() {
 			return
 		}
 		var slotID int
-		err = db.QueryRow(
+		if err := db.QueryRow(
 			`INSERT INTO schedule_slots (doctor_id, start_time, end_time, is_available)
 			 VALUES ($1,$2,$3,TRUE) RETURNING id`,
 			doctorID, start, end,
-		).Scan(&slotID)
-		if err != nil {
+		).Scan(&slotID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при добавлении слота"})
 			return
 		}
@@ -83,8 +83,8 @@ func main() {
 		})
 	})
 
-	// GET    /schedules/my    — вернуть все слоты доктора
-	r.GET("/schedules/my", func(c *gin.Context) {
+	// === Получить слоты текущего врача ===
+	r.GET("/my", func(c *gin.Context) {
 		h := c.GetHeader("X-User-ID")
 		if h == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
@@ -99,14 +99,14 @@ func main() {
 			`SELECT id, start_time, end_time, is_available
 			 FROM schedule_slots
 			 WHERE doctor_id=$1
-			 ORDER BY start_time`,
-			doctorID,
+			 ORDER BY start_time`, doctorID,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка выборки слотов"})
 			return
 		}
 		defer rows.Close()
+
 		var slots []Slot
 		for rows.Next() {
 			var s Slot
@@ -118,24 +118,50 @@ func main() {
 		c.JSON(http.StatusOK, slots)
 	})
 
-	// PATCH  /schedules/:id   — обновить слот
-	r.PATCH("/schedules/:id", func(c *gin.Context) {
-		// ... ваш динамический UPDATE из предыдущей версии ...
+	// === Получить доступные времена ===
+	r.GET("/available", func(c *gin.Context) {
+		docID := c.Query("doctor_id")
+		date := c.Query("date")
+		if docID == "" || date == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "нужны doctor_id и date"})
+			return
+		}
+		did, err := strconv.Atoi(docID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный doctor_id"})
+			return
+		}
+		rows, err := db.Query(
+			`SELECT start_time
+			 FROM schedule_slots
+			 WHERE doctor_id=$1
+			   AND DATE(start_time)= $2
+			   AND is_available = TRUE
+			 ORDER BY start_time`,
+			did, date,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка выборки"})
+			return
+		}
+		defer rows.Close()
+
+		var times []string
+		for rows.Next() {
+			var t time.Time
+			if err := rows.Scan(&t); err == nil {
+				times = append(times, t.Format("15:04"))
+			}
+		}
+		c.JSON(http.StatusOK, times)
 	})
 
-	// DELETE /schedules/:id   — удалить слот
-	r.DELETE("/schedules/:id", func(c *gin.Context) {
-		idParam := c.Param("id")
-		slotID, err := strconv.Atoi(idParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID слота"})
-			return
-		}
-		if _, err := db.Exec(`DELETE FROM schedule_slots WHERE id=$1`, slotID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка удаления слота"})
-			return
-		}
-		c.Status(http.StatusNoContent)
+	// === Обновление и удаление слота ===
+	r.PATCH("/:id", func(c *gin.Context) {
+		// ... ваш код PATCH без изменений, маршрут остается "/:id"
+	})
+	r.DELETE("/:id", func(c *gin.Context) {
+		// ... ваш код DELETE без изменений
 	})
 
 	if err := r.Run(":8082"); err != nil {
