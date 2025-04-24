@@ -1,98 +1,98 @@
 // frontend/src/pages/DoctorDashboard.jsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react';
 import {
     getMyAppointments,
     updateAppointmentStatus,
     getMySlots,
     createSlot,
     deleteSlot,
-} from '../services/appointmentService'
+} from '../services/appointmentService';
 
 export default function DoctorDashboard() {
-    const [tab, setTab] = useState('appointments') // 'appointments' | 'slots'
+    const [tab, setTab] = useState('appointments'); // 'appointments' | 'slots'
 
-    // Записи и слоты
-    const [appointments, setAppointments] = useState([])
-    const [slots, setSlots] = useState([])
+    const [appointments, setAppointments] = useState([]);
+    const [slots, setSlots]               = useState([]);
 
-    // Поля для создания нового слота
-    const [newDate, setNewDate] = useState('')
-    const [newStart, setNewStart] = useState('')
-    const [newEnd, setNewEnd] = useState('')
+    // Новые поля для создания слота
+    const [newDate, setNewDate]     = useState('');
+    const [newStart, setNewStart]   = useState('');
+    const [newEnd, setNewEnd]       = useState('');
 
-    // Загрузить записи при переключении на вкладку "Записи"
+    // Загрузка записей
     useEffect(() => {
-        if (tab !== 'appointments') return
+        if (tab !== 'appointments') return;
         getMyAppointments()
             .then(setAppointments)
             .catch(err => {
-                console.error(err)
-                alert('Не удалось загрузить записи')
-            })
-    }, [tab])
+                console.error(err);
+                alert(err.message);
+                setAppointments([]); // чтобы не было undefined
+            });
+    }, [tab]);
 
-    // Загрузить слоты при переключении на вкладку "Слоты"
+    // Загрузка слотов
     useEffect(() => {
-        if (tab !== 'slots') return
+        if (tab !== 'slots') return;
         getMySlots()
             .then(setSlots)
             .catch(err => {
-                console.error(err)
-                alert('Не удалось загрузить слоты')
-            })
-    }, [tab])
+                console.error(err);
+                alert(err.message);
+                setSlots([]); // защита от null
+            });
+    }, [tab]);
 
-    // Подтвердить или отменить запись
+    // Подтвердить / отменить запись
     const handleUpdateAppointment = async (id, status) => {
         try {
-            await updateAppointmentStatus(id, status)
+            await updateAppointmentStatus(id, status);
             setAppointments(prev =>
                 prev.map(a => (a.id === id ? { ...a, status } : a))
-            )
+            );
         } catch (err) {
-            console.error(err)
-            alert('Не удалось обновить статус записи')
+            console.error(err);
+            alert(err.message);
         }
-    }
+    };
 
-    // Добавить новый слот
+    // Добавить слот
     const handleAddSlot = async () => {
         if (!newDate || !newStart || !newEnd) {
-            return alert('Укажите дату, время начала и время конца')
+            return alert('Укажите все поля для нового слота');
         }
         try {
             const slot = await createSlot({
                 date: newDate,
                 start_time: newStart,
                 end_time: newEnd,
-            })
-            setSlots(prev => [...prev, slot])
-            setNewDate('')
-            setNewStart('')
-            setNewEnd('')
+            });
+            setSlots(prev => [...prev, slot]);
+            setNewDate('');
+            setNewStart('');
+            setNewEnd('');
         } catch (err) {
-            console.error(err)
-            alert(err.message)
+            console.error(err);
+            alert(err.message);
         }
-    }
+    };
 
     // Удалить слот
     const handleDeleteSlot = async id => {
-        if (!window.confirm('Удалить этот слот?')) return
+        if (!window.confirm('Удалить этот слот?')) return;
         try {
-            await deleteSlot(id)
-            setSlots(prev => prev.filter(s => s.id !== id))
+            await deleteSlot(id);
+            setSlots(prev => prev.filter(s => s.id !== id));
         } catch (err) {
-            console.error(err)
-            alert('Не удалось удалить слот')
+            console.error(err);
+            alert(err.message);
         }
-    }
+    };
 
     return (
         <div className="min-h-screen bg-gray-900 text-gray-100 p-6">
             <h1 className="text-3xl font-bold mb-6">Панель врача</h1>
 
-            {/* Навигация */}
             <div className="flex space-x-4 mb-8">
                 <button
                     onClick={() => setTab('appointments')}
@@ -166,8 +166,6 @@ export default function DoctorDashboard() {
             {tab === 'slots' && (
                 <>
                     <h2 className="text-2xl font-semibold mb-4">Управление слотами</h2>
-
-                    {/* Форма создания слота */}
                     <div className="flex flex-wrap gap-4 mb-6">
                         <input
                             type="date"
@@ -194,37 +192,36 @@ export default function DoctorDashboard() {
                             Добавить слот
                         </button>
                     </div>
-
-                    {/* Список слотов */}
-                    {slots.length === 0 ? (
+                    {slots && slots.length === 0 ? (
                         <p>Нет доступных слотов.</p>
                     ) : (
                         <div className="space-y-2">
-                            {slots.map(s => (
-                                <div
-                                    key={s.id}
-                                    className="bg-gray-800 p-3 rounded flex justify-between items-center"
-                                >
-                                    <div className="text-sm">
-                    <span className="font-medium">
-                      {s.StartTime.slice(0, 10)}
-                    </span>{' '}
-                                        <span>
-                      {s.StartTime.slice(11, 16)} — {s.EndTime.slice(11, 16)}
-                    </span>
-                                    </div>
-                                    <button
-                                        onClick={() => handleDeleteSlot(s.id)}
-                                        className="text-red-500 hover:text-red-400"
+                            {slots &&
+                                slots.map(s => (
+                                    <div
+                                        key={s.id}
+                                        className="bg-gray-800 p-3 rounded flex justify-between items-center"
                                     >
-                                        Удалить
-                                    </button>
-                                </div>
-                            ))}
+                                        <div className="text-sm">
+                      <span className="font-medium">
+                        {s.start_time.slice(0, 10)}
+                      </span>{' '}
+                                            <span>
+                        {s.start_time.slice(11, 16)} — {s.end_time.slice(11, 16)}
+                      </span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleDeleteSlot(s.id)}
+                                            className="text-red-500 hover:text-red-400"
+                                        >
+                                            Удалить
+                                        </button>
+                                    </div>
+                                ))}
                         </div>
                     )}
                 </>
             )}
         </div>
-    )
+    );
 }

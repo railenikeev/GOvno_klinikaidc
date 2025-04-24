@@ -13,8 +13,6 @@ import (
 
 type Appointment struct {
 	ID          int    `json:"id"`
-	DoctorID    int    `json:"doctor_id"`
-	PatientID   int    `json:"patient_id"`
 	PatientName string `json:"patient_name"`
 	Date        string `json:"date"`
 	Time        string `json:"time"`
@@ -26,7 +24,6 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL не задан")
 	}
-
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("Ошибка подключения к БД:", err)
@@ -35,73 +32,66 @@ func main() {
 
 	r := gin.Default()
 
-	// GET /my — записи текущего доктора
-	r.GET("/my", func(c *gin.Context) {
-		userID := c.GetHeader("X-User-ID")
-		doctorID, err := strconv.Atoi(userID)
-		if err != nil || doctorID <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "некорректный X-User-ID"})
+	// GET /appointments/my
+	r.GET("/appointments/my", func(c *gin.Context) {
+		h := c.GetHeader("X-User-ID")
+		if h == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "нужен заголовок X-User-ID"})
+			return
+		}
+		doctorID, err := strconv.Atoi(h)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный X-User-ID"})
 			return
 		}
 
-		rows, err := db.Query(
-			`SELECT a.id, a.patient_id, u.full_name, a.date, a.time, a.status
-			 FROM appointments a
-			 JOIN users u ON a.patient_id = u.id
-			 WHERE a.doctor_id = $1
-			 ORDER BY a.date, a.time`,
-			doctorID,
-		)
+		rows, err := db.Query(`
+			SELECT a.id, u.full_name, a.date, a.time, a.status
+			FROM appointments a
+			JOIN users u ON a.patient_id = u.id
+			WHERE a.doctor_id = $1
+			ORDER BY a.date, a.time
+		`, doctorID)
 		if err != nil {
-			log.Println("db select error:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось загрузить записи"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка выборки"})
 			return
 		}
 		defer rows.Close()
 
-		var apps []Appointment
+		var appts []Appointment
 		for rows.Next() {
 			var a Appointment
-			a.DoctorID = doctorID
-			if err := rows.Scan(&a.ID, &a.PatientID, &a.PatientName, &a.Date, &a.Time, &a.Status); err == nil {
-				apps = append(apps, a)
+			if err := rows.Scan(&a.ID, &a.PatientName, &a.Date, &a.Time, &a.Status); err == nil {
+				appts = append(appts, a)
 			}
 		}
-		c.JSON(http.StatusOK, apps)
+		c.JSON(http.StatusOK, appts)
 	})
 
-	// PATCH /:id/status — обновить статус
-	r.PATCH("/:id/status", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.Param("id"))
+	// PATCH /appointments/:id/status
+	r.PATCH("/appointments/:id/status", func(c *gin.Context) {
+		idParam := c.Param("id")
+		apptID, err := strconv.Atoi(idParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID записи"})
 			return
 		}
-		var body struct {
+		var in struct {
 			Status string `json:"status"`
 		}
-		if err := c.BindJSON(&body); err != nil || body.Status == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный статус"})
+		if err := c.BindJSON(&in); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
 			return
 		}
-
-		res, err := db.Exec(
-			`UPDATE appointments SET status=$1 WHERE id=$2`,
-			body.Status, id,
-		)
+		_, err = db.Exec(`UPDATE appointments SET status=$1 WHERE id=$2`, in.Status, apptID)
 		if err != nil {
-			log.Println("db update error:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось обновить статус"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка обновления статуса"})
 			return
 		}
-		if cnt, _ := res.RowsAffected(); cnt == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "запись не найдена"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"id": id, "status": body.Status})
+		c.JSON(http.StatusOK, gin.H{"id": apptID, "status": in.Status})
 	})
 
 	if err := r.Run(":8083"); err != nil {
-		log.Fatalf("Ошибка запуска appointments-сервиса: %v", err)
+		log.Fatalf("Ошибка запуска appointments_service: %v", err)
 	}
 }
