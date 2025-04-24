@@ -16,29 +16,30 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-/* ─────────────── модели ─────────────── */
+/* ─────────── модели ─────────── */
 
 type User struct {
-	ID       int    `json:"id"`
-	FullName string `json:"full_name"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
-	Role     string `json:"role"`
-	ClinicID *int   `json:"clinic_id"`
+	ID             int    `json:"id"`
+	FullName       string `json:"full_name"`
+	Email          string `json:"email"`
+	Phone          string `json:"phone"`
+	Role           string `json:"role"`
+	ClinicID       *int   `json:"clinic_id"`
+	Specialization string `json:"specialization,omitempty"`
 }
 
-/* ─────────────── JWT ─────────────── */
+/* ─────────── JWT ─────────── */
 
 var jwtSecret = []byte("supersecret")
 
 func extractUserID(c *gin.Context) (int, error) {
 	auth := c.GetHeader("Authorization")
 	if auth == "" {
-		return 0, errors.New("отсутствует Authorization Header")
+		return 0, errors.New("отсутствует Authorization header")
 	}
 	parts := strings.Fields(auth)
 	if len(parts) != 2 || parts[0] != "Bearer" {
-		return 0, errors.New("некорректный Authorization Header")
+		return 0, errors.New("некорректный Authorization header")
 	}
 	tokenStr := parts[1]
 
@@ -60,20 +61,20 @@ func extractUserID(c *gin.Context) (int, error) {
 	case float64:
 		return int(v), nil
 	case string:
-		id, err := strconv.Atoi(v)
-		return id, err
+		return strconv.Atoi(v)
 	default:
 		return 0, errors.New("неизвестный тип user_id в токене")
 	}
 }
 
-/* ─────────────── main ─────────────── */
+/* ─────────── main ─────────── */
 
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL не задан")
 	}
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("Ошибка подключения к БД:", err)
@@ -82,29 +83,29 @@ func main() {
 
 	r := gin.Default()
 
-	/* ---------- регистрация / логин ---------- */
+	/* ─────────── auth ─────────── */
 
 	r.POST("/register", func(c *gin.Context) {
 		var req struct {
-			FullName string `json:"full_name"`
-			Email    string `json:"email"`
-			Password string `json:"password"`
-			Phone    string `json:"phone"`
-			Role     string `json:"role"`
-			ClinicID *int   `json:"clinic_id"`
+			FullName       string `json:"full_name"`
+			Email          string `json:"email"`
+			Password       string `json:"password"`
+			Phone          string `json:"phone"`
+			Role           string `json:"role"`
+			ClinicID       *int   `json:"clinic_id"`
+			Specialization string `json:"specialization"`
 		}
 		if err := c.BindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный JSON"})
 			return
 		}
 		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-
 		var id int
 		err = db.QueryRow(
-			`INSERT INTO users (full_name, email, password_hash, phone, role, clinic_id)
-			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
-		).Scan(&id)
+			`INSERT INTO users (full_name,email,password_hash,phone,role,clinic_id,specialization)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID, req.Specialization).
+			Scan(&id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при регистрации"})
 			return
@@ -117,17 +118,15 @@ func main() {
 			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
-		if err := c.BindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный запрос"})
+		if c.BindJSON(&req) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный JSON"})
 			return
 		}
 		var id int
 		var hash string
-		err := db.QueryRow(
-			`SELECT id, password_hash FROM users WHERE email = $1`, req.Email,
-		).Scan(&id, &hash)
+		err := db.QueryRow(`SELECT id,password_hash FROM users WHERE email=$1`, req.Email).Scan(&id, &hash)
 		if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "неверные учётные данные"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "неверные email или пароль"})
 			return
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -138,7 +137,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"token": tokenStr})
 	})
 
-	/* ---------- профиль ---------- */
+	/* ─────────── профиль ─────────── */
 
 	getProfile := func(c *gin.Context) {
 		uid, err := extractUserID(c)
@@ -147,146 +146,66 @@ func main() {
 			return
 		}
 		var u User
-		err = db.QueryRow(
-			`SELECT id, full_name, email, phone, role, clinic_id FROM users WHERE id=$1`, uid,
-		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID)
+		err = db.QueryRow(`
+			SELECT id,full_name,email,phone,role,clinic_id,COALESCE(specialization,'')
+			FROM users WHERE id=$1`, uid).
+			Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID, &u.Specialization)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "пользователь не найден"})
 			return
 		}
 		c.JSON(http.StatusOK, u)
 	}
+
 	r.GET("/me", getProfile)
 	r.GET("/profile", getProfile)
 
-	/* ---------- админ-панель клиники ---------- */
+	/* -------- вспомогательные endpoints для админ-панелей -------- */
 
-	// статистика
-	r.GET("/stats", func(c *gin.Context) {
-		adminID, err := extractUserID(c)
+	// выборка пользователей по роли: /users?role=doctor
+	r.GET("/users", func(c *gin.Context) {
+		role := c.Query("role")
+		rows, err := db.Query(`
+			SELECT id,full_name,email,phone,role,clinic_id,specialization
+			FROM users
+			WHERE ($1='' OR role=$1)`, role)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "query err"})
 			return
 		}
-		var clinicID *int
-		db.QueryRow("SELECT clinic_id FROM users WHERE id=$1", adminID).Scan(&clinicID)
-		if clinicID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "не привязаны к клинике"})
-			return
-		}
-		var patients, doctors int
-		db.QueryRow("SELECT COUNT(*) FROM users WHERE role='patient' AND clinic_id=$1", *clinicID).Scan(&patients)
-		db.QueryRow("SELECT COUNT(*) FROM users WHERE role='doctor'  AND clinic_id=$1", *clinicID).Scan(&doctors)
-		c.JSON(http.StatusOK, gin.H{"patients": patients, "doctors": doctors})
-	})
-
-	// список пациентов
-	r.GET("/patients", func(c *gin.Context) {
-		adminID, err := extractUserID(c)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
-		var clinicID *int
-		db.QueryRow("SELECT clinic_id FROM users WHERE id=$1", adminID).Scan(&clinicID)
-		if clinicID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "не привязаны к клинике"})
-			return
-		}
-		rows, _ := db.Query(
-			`SELECT id, full_name, email FROM users WHERE role='patient' AND clinic_id=$1`, *clinicID)
 		defer rows.Close()
-		type P struct {
-			ID              int
-			FullName, Email string
-		}
-		var list []P
+		var list []User
 		for rows.Next() {
-			var p P
-			rows.Scan(&p.ID, &p.FullName, &p.Email)
-			list = append(list, p)
+			var u User
+			if err := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Phone,
+				&u.Role, &u.ClinicID, &u.Specialization); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "scan err"})
+				return
+			}
+			list = append(list, u)
 		}
 		c.JSON(http.StatusOK, list)
 	})
 
-	// список врачей
-	r.GET("/doctors", func(c *gin.Context) {
-		adminID, err := extractUserID(c)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
-		var clinicID *int
-		db.QueryRow("SELECT clinic_id FROM users WHERE id=$1", adminID).Scan(&clinicID)
-		if clinicID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "не привязаны к клинике"})
-			return
-		}
-		rows, _ := db.Query(
-			`SELECT id, full_name, specialization
-			   FROM users WHERE role='doctor' AND clinic_id=$1`, *clinicID)
-		defer rows.Close()
-		type D struct {
-			ID                       int
-			FullName, Specialization string
-		}
-		var list []D
-		for rows.Next() {
-			var d D
-			rows.Scan(&d.ID, &d.FullName, &d.Specialization)
-			list = append(list, d)
-		}
-		c.JSON(http.StatusOK, list)
-	})
-
-	/* ---------- НОВОЕ:  POST /doctors  ---------- */
-
-	r.POST("/doctors", func(c *gin.Context) {
-		adminID, err := extractUserID(c)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
-
-		// клиника админа
-		var clinicID *int
-		if err := db.QueryRow("SELECT clinic_id FROM users WHERE id=$1", adminID).Scan(&clinicID); err != nil || clinicID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "админ не привязан к клинике"})
-			return
-		}
-
-		// тело запроса
+	// PATCH /users/:id/role  { "role": "clinic_admin", "clinic_id": 3 }
+	r.PATCH("/users/:id/role", func(c *gin.Context) {
+		uid, _ := strconv.Atoi(c.Param("id"))
 		var req struct {
-			UserID         int    `json:"userId"`
-			Specialization string `json:"specialization"`
+			Role     string `json:"role"`
+			ClinicID *int   `json:"clinic_id"`
 		}
 		if err := c.BindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "неправильный JSON"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
 			return
 		}
-
-		// «повышаем» пациента до врача
-		res, execErr := db.Exec(
-			`UPDATE users
-			   SET role='doctor', clinic_id=$1, specialization=$2
-			 WHERE id=$3 AND role='patient'`,
-			*clinicID, req.Specialization, req.UserID,
-		)
-		if execErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB error"})
+		_, err := db.Exec(`UPDATE users SET role=$1, clinic_id=$2 WHERE id=$3`,
+			req.Role, req.ClinicID, uid)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "update err"})
 			return
 		}
-		if rows, _ := res.RowsAffected(); rows == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "пользователь не найден или уже врач"})
-			return
-		}
-		c.Status(http.StatusNoContent) // 204
+		c.Status(http.StatusNoContent)
 	})
 
-	/* ---------- старт ---------- */
-
-	log.Println("users-service listening :8080")
-	if err := r.Run(":8080"); err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(r.Run(":8080"))
 }
