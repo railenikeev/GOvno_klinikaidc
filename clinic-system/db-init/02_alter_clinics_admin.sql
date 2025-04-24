@@ -1,0 +1,2 @@
+ALTER TABLE clinics
+    ADD COLUMN admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
