@@ -138,6 +138,8 @@ export default function SystemAdminDashboard() {
                     placeholder="Телефон"
                     value={form.phone}
                     onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    maxLength={11}
+                    pattern="\d{11}"
                     className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 focus:ring-2 focus:ring-purple-600"
                     required
                 />
