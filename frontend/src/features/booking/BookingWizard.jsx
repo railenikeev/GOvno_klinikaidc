@@ -7,204 +7,186 @@ import {
     createAppointment,
 } from '../../services/bookingService';
 
-const steps = ['Город', 'Клиника', 'Врач', 'Время'];
-
 export default function BookingWizard() {
-    const [step, setStep] = useState(0);
+    const [clinics, setClinics] = useState([]);
+    const [city, setCity] = useState('');
+    const [clinicId, setClinicId] = useState('');
+    const [doctors, setDoctors] = useState([]);
+    const [doctorId, setDoctorId] = useState('');
+    const today = new Date().toISOString().split('T')[0];
+    const [date, setDate] = useState(today);
+    const [slots, setSlots] = useState([]);
+    const [time, setTime] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [info, setInfo] = useState('');
 
-    // ───── исходные данные ─────
-    const [clinics, setClinics]    = useState([]);
-    const [clinicId, setClinicId]  = useState(null);
-
-    const [doctors, setDoctors]    = useState([]);
-    const [doctorId, setDoctorId]  = useState(null);
-
-    const [date, setDate]          = useState('');
-    const [slots, setSlots]        = useState([]);
-    const [time, setTime]          = useState('');
-
-    /** загрузка всех клиник один раз */
+    /* ───── загрузка клиник ───── */
     useEffect(() => {
-        fetchClinics()
-            .then(setClinics)
-            .catch(() => alert('Не удалось загрузить клиники'));
+        fetchClinics().then(setClinics).catch(() => alert('Не удалось загрузить клиники'));
     }, []);
 
-    /** уникальные города из полученных клиник */
-    const cities = useMemo(() => {
-        const set = new Set(clinics.map(c => c.city));
-        return Array.from(set).sort();
-    }, [clinics]);
+    const cities = useMemo(() => Array.from(new Set(clinics.map(c => c.city))).sort(), [clinics]);
+    const cityClinics = clinics.filter(c => c.city === city);
 
-    /** клиники выбранного города */
-    const [city, setCity] = useState('');
-    const cityClinics     = clinics.filter(c => c.city === city);
-
-    /** врачи по выбранной клинике */
+    /* ───── врачи ───── */
     useEffect(() => {
         if (!clinicId) return;
-        fetchDoctors(clinicId)
-            .then(setDoctors)
-            .catch(() => alert('Не удалось загрузить врачей'));
+        setDoctorId('');
+        setDate(today);
+        setSlots([]);
+        setTime('');
+        fetchDoctors(clinicId).then(setDoctors).catch(() => alert('Не удалось загрузить врачей'));
     }, [clinicId]);
 
-    /** слоты по врачу + дате */
+    /* ───── свободные слоты ───── */
     useEffect(() => {
         if (!doctorId || !date) return;
+        setTime('');
         fetchAvailableTimes(doctorId, date)
             .then(setSlots)
-            .catch(() => alert('Не удалось загрузить свободное время'));
+            .catch(() => alert('Не удалось загрузить время'));
     }, [doctorId, date]);
 
-    /* ─────────── UI ─────────── */
+    /* ───── отправка ───── */
+    async function handleSubmit(e) {
+        e.preventDefault();
+        if (!doctorId || !date || !time) return;
+        setSaving(true);
+        try {
+            await createAppointment({ doctor_id: doctorId, date, time });
+            setInfo('✅ Запись создана!');
+            setClinicId('');
+            setDoctorId('');
+            setSlots([]);
+            setTime('');
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    /* ───── общий класс для select / input ───── */
+    const ctrl =
+        'w-full bg-gray-800 text-gray-100 border border-gray-600 rounded px-3 py-2 ' +
+        'focus:outline-none focus:ring-2 focus:ring-purple-600';
 
     return (
-        <div className="mx-auto max-w-4xl py-8 px-4">
-            {/* Stepper */}
-            <div className="flex items-center justify-between mb-10">
-                {steps.map((s, i) => (
-                    <div key={s} className="flex-1 flex flex-col items-center">
-                        <div
-                            className={`w-8 h-8 flex items-center justify-center rounded-full
-                ${step === i ? 'bg-purple-600 text-white'
-                                : 'bg-gray-700 text-gray-300'}`}
-                        >
-                            {i + 1}
-                        </div>
-                        <span className="mt-2 text-sm text-gray-400">{s}</span>
-                        {i < steps.length - 1 && (
-                            <div className="h-px bg-gray-700 flex-1 w-full" />
-                        )}
-                    </div>
-                ))}
-            </div>
+        <div className="max-w-3xl mx-auto p-6">
+            <h1 className="text-2xl font-semibold mb-6 text-center text-gray-100">Он-лайн запись</h1>
 
-            {/* Шаг 0 — города */}
-            {step === 0 && (
-                <div className="grid gap-4 sm:grid-cols-3">
-                    {cities.map(ct => (
-                        <button
-                            key={ct}
-                            onClick={() => {
-                                setCity(ct);
-                                setStep(1);
-                            }}
-                            className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-white"
-                        >
-                            {ct}
-                        </button>
-                    ))}
+            {info && (
+                <p className="mb-6 bg-green-900/40 border border-green-600 text-green-200 px-4 py-3 rounded">
+                    {info}
+                </p>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-6 text-gray-100">
+                {/* город */}
+                <div>
+                    <label className="block mb-1">Город</label>
+                    <select
+                        className={ctrl}
+                        value={city}
+                        onChange={e => setCity(e.target.value)}
+                        required
+                    >
+                        <option value="" disabled className="text-gray-400">
+                            — выберите город —
+                        </option>
+                        {cities.map(c => (
+                            <option key={c}>{c}</option>
+                        ))}
+                    </select>
                 </div>
-            )}
 
-            {/* Шаг 1 — клиники */}
-            {step === 1 && (
-                <>
-                    <p className="mb-4 text-gray-300">{city}</p>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                {/* клиника */}
+                <div>
+                    <label className="block mb-1">Клиника</label>
+                    <select
+                        className={ctrl}
+                        value={clinicId}
+                        onChange={e => setClinicId(e.target.value)}
+                        disabled={!city}
+                        required
+                    >
+                        <option value="" disabled className="text-gray-400">
+                            — выберите клинику —
+                        </option>
                         {cityClinics.map(cl => (
-                            <button
-                                key={cl.id}
-                                onClick={() => {
-                                    setClinicId(cl.id);
-                                    setStep(2);
-                                }}
-                                className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-left"
-                            >
-                                <h3 className="text-lg text-white font-semibold">{cl.name}</h3>
-                                <p className="text-sm text-gray-400">{cl.address}</p>
-                            </button>
+                            <option key={cl.id} value={cl.id}>
+                                {cl.name}
+                            </option>
                         ))}
-                    </div>
-                </>
-            )}
+                    </select>
+                </div>
 
-            {/* Шаг 2 — врачи */}
-            {step === 2 && (
-                <>
-                    <p className="mb-4 text-gray-300">
-                        {cityClinics.find(c => c.id === clinicId)?.name}
-                    </p>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                {/* врач */}
+                <div>
+                    <label className="block mb-1">Врач</label>
+                    <select
+                        className={ctrl}
+                        value={doctorId}
+                        onChange={e => setDoctorId(e.target.value)}
+                        disabled={!clinicId}
+                        required
+                    >
+                        <option value="" disabled className="text-gray-400">
+                            — выберите врача —
+                        </option>
                         {doctors.map(d => (
-                            <button
-                                key={d.id}
-                                onClick={() => {
-                                    setDoctorId(d.id);
-                                    setStep(3);
-                                }}
-                                className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 text-left"
-                            >
-                                <h3 className="text-white">{d.full_name}</h3>
-                                <p className="text-sm text-gray-400">{d.specialization}</p>
-                            </button>
+                            <option key={d.id} value={d.id}>
+                                {d.full_name} • {d.specialization || '—'}
+                            </option>
                         ))}
+                    </select>
+                </div>
+
+                {/* дата + время */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                    <div className="flex-1">
+                        <label className="block mb-1">Дата</label>
+                        <input
+                            type="date"
+                            className={ctrl}
+                            value={date}
+                            min={today}
+                            onChange={e => setDate(e.target.value)}
+                            disabled={!doctorId}
+                            required
+                        />
                     </div>
-                </>
-            )}
 
-            {/* Шаг 3 — дата / время */}
-            {step === 3 && (
-                <>
-                    <p className="mb-6 text-gray-300">
-                        {cityClinics.find(c => c.id === clinicId)?.name} →{' '}
-                        {doctors.find(d => d.id === doctorId)?.full_name}
-                    </p>
-
-                    <input
-                        type="date"
-                        value={date}
-                        onChange={e => setDate(e.target.value)}
-                        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2
-                       text-gray-100 focus:ring-2 focus:ring-purple-600 mb-6"
-                    />
-
-                    {date && (
-                        <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-                            {slots.length === 0 && (
-                                <p className="text-gray-400 col-span-full">Нет свободных слотов</p>
-                            )}
-                            {slots.map(t => (
-                                <button
-                                    key={t}
-                                    onClick={() => setTime(t)}
-                                    className={`rounded-lg px-3 py-2 ${
-                                        t === time
-                                            ? 'bg-purple-600 text-white'
-                                            : 'bg-gray-800 hover:bg-gray-700 text-gray-100'
-                                    }`}
-                                >
-                                    {t}
-                                </button>
-                            ))}
+                    {slots.length > 0 && (
+                        <div className="flex-1 mt-4 sm:mt-0">
+                            <label className="block mb-1">Время</label>
+                            <select
+                                className={ctrl}
+                                value={time}
+                                onChange={e => setTime(e.target.value)}
+                                required
+                            >
+                                <option value="" disabled className="text-gray-400">
+                                    — выберите время —
+                                </option>
+                                {slots.map(t => (
+                                    <option key={t}>{t}</option>
+                                ))}
+                            </select>
                         </div>
                     )}
+                </div>
 
-                    {time && (
-                        <button
-                            onClick={async () => {
-                                try {
-                                    await createAppointment({ doctor_id: doctorId, date, time });
-                                    alert('Запись создана!');
-                                    // сброс до первого шага
-                                    setStep(0);
-                                    setCity('');
-                                    setClinicId(null);
-                                    setDoctorId(null);
-                                    setDate('');
-                                    setTime('');
-                                } catch (err) {
-                                    alert(err.message);
-                                }
-                            }}
-                            className="mt-8 bg-purple-600 hover:bg-purple-500
-                         rounded-lg px-6 py-3 text-white font-medium"
-                        >
-                            Подтвердить
-                        </button>
-                    )}
-                </>
-            )}
+                {/* кнопка */}
+                <button
+                    type="submit"
+                    disabled={saving || !time}
+                    className="w-full bg-purple-700 hover:bg-purple-600 disabled:opacity-50
+                     text-white font-medium py-2 rounded transition"
+                >
+                    {saving ? 'Сохраняем…' : 'Записаться'}
+                </button>
+            </form>
         </div>
     );
 }
