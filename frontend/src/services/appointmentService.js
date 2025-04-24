@@ -35,8 +35,8 @@ export async function updateAppointmentStatus(appointmentId, status) {
 /* ──────────── SLOTS (Schedules) ──────────── */
 
 // Fetch all slots (schedules) belonging to the logged-in doctor
-export async function getMySlots() {
-    const res = await fetch(`${API}/schedules/my`, {
+export async function getMySlots(doctor_id) {
+    const res = await fetch(`${API}/schedules/my?doctor_id=${doctor_id}`, {
         headers: authHeaders(),
     })
     if (!res.ok) throw new Error('Не удалось загрузить слоты')
@@ -45,11 +45,11 @@ export async function getMySlots() {
 
 // Create a new slot
 // payload: { date: 'YYYY-MM-DD', start_time: 'HH:MM', end_time: 'HH:MM' }
-export async function createSlot({ date, start_time, end_time }) {
+export async function createSlot({ doctor_id, date, start_time, end_time }) {
     const res = await fetch(`${API}/schedules`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ date, start_time, end_time }),
+        body: JSON.stringify({ doctor_id, date, start_time, end_time }),
     })
     if (!res.ok) {
         const err = await res.json().catch(() => ({}))
