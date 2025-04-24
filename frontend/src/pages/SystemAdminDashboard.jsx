@@ -43,7 +43,7 @@ export default function SystemAdminDashboard() {
         try {
             await createClinic(form)
             setForm({ city: '', name: '', address: '', phone: '' })
-            loadClinics()
+            await loadClinics()
         } catch (err) {
             alert(err.message)
         }
@@ -55,7 +55,7 @@ export default function SystemAdminDashboard() {
         try {
             await assignClinicAdmin(clinicId, userId)
             alert('Администратор назначен')
-            loadClinics()
+            await loadClinics()
         } catch (err) {
             alert(err.message)
         }
@@ -65,7 +65,7 @@ export default function SystemAdminDashboard() {
         if (!window.confirm('Удалить эту клинику?')) return
         try {
             await deleteClinic(clinicId)
-            loadClinics()
+            await loadClinics()
         } catch (err) {
             alert(err.message)
         }
@@ -85,7 +85,7 @@ export default function SystemAdminDashboard() {
         try {
             await updateClinic(clinicId, editForm)
             setEditingId(null)
-            loadClinics()
+            await loadClinics()
         } catch (err) {
             alert(err.message)
         }

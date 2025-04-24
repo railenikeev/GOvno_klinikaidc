@@ -1,9 +1,9 @@
 // frontend/src/services/clinicService.js
-
 const API = '/api'
 
 async function request(path, opts = {}) {
     const token = localStorage.getItem('token')
+
     const res = await fetch(`${API}${path}`, {
         ...opts,
         headers: {
@@ -16,42 +16,37 @@ async function request(path, opts = {}) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || `Ошибка ${res.status}`)
     }
+
     if (res.status === 204) return null
     return res.json()
 }
 
-export function getClinics() {
-    return request('/clinics')
-}
+/* ────────── CRUD клиник ────────── */
 
-export function createClinic(data) {
-    return request('/clinics', {
+export const getClinics = () => request('/clinics')
+
+export const createClinic = data =>
+    request('/clinics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     })
-}
 
-export function assignClinicAdmin(clinicId, userId) {
-    return request(`/clinics/${clinicId}/assign-admin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId: userId }),
-    })
-}
-
-// **Новое**: удалить клинику
-export function deleteClinic(clinicId) {
-    return request(`/clinics/${clinicId}`, {
-        method: 'DELETE',
-    })
-}
-
-// **Новое**: обновить клинику
-export function updateClinic(clinicId, data) {
-    return request(`/clinics/${clinicId}`, {
+export const updateClinic = (clinicId, data) =>
+    request(`/clinics/${clinicId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     })
-}
+
+export const deleteClinic = clinicId =>
+    request(`/clinics/${clinicId}`, { method: 'DELETE' })
+
+/* ────────── назначить администратора ────────── */
+
+export const assignClinicAdmin = (clinicId, userId) =>
+    request(`/clinics/${clinicId}/assign-admin`, {
+        method: 'PATCH',                    // ← backend ждёт PATCH
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),   // ← backend ждёт поле userId
+    })
