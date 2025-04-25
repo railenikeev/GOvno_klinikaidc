@@ -29,7 +29,9 @@ export default function AdminDashboard() {
             setLoading(true);
             try {
                 if (tab === "doctors") {
-                    setDoctors(await getDoctors());
+                    const docs = await getDoctors();
+                    // добавлена проверка: гарантируем, что doctors всегда массив
+                    setDoctors(Array.isArray(docs) ? docs : []);
                 } else if (tab === "schedule") {
                     setSchedule(await getSchedule());
                 } else if (tab === "appointments") {

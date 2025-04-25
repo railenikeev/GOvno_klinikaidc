@@ -1,6 +1,6 @@
 // frontend/src/services/adminService.js
 
-const API_USERS = '/api/users';        // users-service через gateway
+const API_USERS = '/api/users'; // users-service через gateway
 const API_APPOINT = '/api/appointments';
 const API_PAYMENTS = '/api/payments';
 
@@ -17,9 +17,8 @@ async function jsonOrError(res, defaultMsg) {
 }
 
 /* ------------------------------------------------------------------ */
-/*                               СТАТИСТИКА                           */
+/* СТАТИСТИКА */
 /* ------------------------------------------------------------------ */
-
 export async function getClinicStats() {
     const res = await fetch(`${API_USERS}/admin/stats`, {
         headers: authHeaders(),
@@ -28,9 +27,8 @@ export async function getClinicStats() {
 }
 
 /* ------------------------------------------------------------------ */
-/*                               ПАЦИЕНТЫ                             */
+/* ПАЦИЕНТЫ */
 /* ------------------------------------------------------------------ */
-
 export async function getPatients() {
     const res = await fetch(`${API_USERS}/admin/patients`, {
         headers: authHeaders(),
@@ -39,13 +37,16 @@ export async function getPatients() {
 }
 
 /* ------------------------------------------------------------------ */
-/*                                ВРАЧИ                               */
+/* ВРАЧИ */
 /* ------------------------------------------------------------------ */
-
 export async function getDoctors() {
     const res = await fetch(`${API_USERS}/doctors`, {
         headers: authHeaders(),
     });
+    // если сервис вернул 204 No Content — возвращаем пустой список
+    if (res.status === 204) {
+        return [];
+    }
     return jsonOrError(res, 'Ошибка получения врачей');
 }
 
@@ -65,7 +66,6 @@ export async function addDoctor({ userId, specialization }) {
         },
         body: JSON.stringify({ userId, specialization }),
     });
-
     // users-service отвечает 204 No Content при успехе
     if (res.status === 204) return getDoctor(userId);
     return jsonOrError(res, 'Ошибка добавления врача');
@@ -92,9 +92,8 @@ export async function deleteDoctor(id) {
 }
 
 /* ------------------------------------------------------------------ */
-/*                          ЗАПИСИ и ПЛАТЕЖИ                          */
+/* ЗАПИСИ и ПЛАТЕЖИ */
 /* ------------------------------------------------------------------ */
-
 export async function getAppointments() {
     const res = await fetch(API_APPOINT, { headers: authHeaders() });
     return jsonOrError(res, 'Ошибка получения записей');
