@@ -1,4 +1,4 @@
-// clinics/main.go
+// clinic-system/clinics/main.go
 package main
 
 import (
@@ -39,10 +39,11 @@ func main() {
 	// ----------- список клиник -------------
 	r.GET("/clinics", func(c *gin.Context) {
 		rows, err := db.Query(`
-			SELECT c.id, c.city, c.name, c.address, c.phone,
-			       u.id, COALESCE(u.full_name,''), COALESCE(u.email,'')
-			FROM clinics c
-			LEFT JOIN users u ON u.id = c.admin_id`)
+      SELECT c.id, c.city, c.name, c.address, c.phone,
+             u.id, COALESCE(u.full_name,''), COALESCE(u.email,'')
+      FROM clinics c
+      LEFT JOIN users u ON u.id = c.admin_id
+    `)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db query error"})
 			return
@@ -54,9 +55,10 @@ func main() {
 			var cl Clinic
 			var uid sql.NullInt64
 			var fn, em string
-			if err := rows.Scan(&cl.ID, &cl.City, &cl.Name,
-				&cl.Address, &cl.Phone,
-				&uid, &fn, &em); err != nil {
+			if err := rows.Scan(
+				&cl.ID, &cl.City, &cl.Name, &cl.Address, &cl.Phone,
+				&uid, &fn, &em,
+			); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "scan error"})
 				return
 			}
@@ -76,6 +78,27 @@ func main() {
 		c.JSON(http.StatusOK, list)
 	})
 
+	// ----------- создать клинику -------------
+	r.POST("/clinics", func(c *gin.Context) {
+		var req Clinic
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		var newID int
+		err := db.QueryRow(
+			`INSERT INTO clinics (city, name, address, phone)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+			req.City, req.Name, req.Address, req.Phone,
+		).Scan(&newID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert error"})
+			return
+		}
+		req.ID = newID
+		c.JSON(http.StatusCreated, req)
+	})
+
 	// ----------- назначить администратора -------------
 	r.PATCH("/clinics/:id/assign-admin", func(c *gin.Context) {
 		clinicID, _ := strconv.Atoi(c.Param("id"))
@@ -86,33 +109,40 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
 			return
 		}
+
 		tx, err := db.Begin()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "tx begin error"})
 			return
 		}
-		// 1. обновляем роль пользователя
-		if _, err := tx.Exec(`UPDATE users SET role = 'clinic_admin', clinic_id = $1 WHERE id = $2`,
-			clinicID, req.UserID); err != nil {
+
+		// 1) обновляем роль пользователя
+		if _, err := tx.Exec(
+			`UPDATE users SET role = 'clinic_admin', clinic_id = $1 WHERE id = $2`,
+			clinicID, req.UserID,
+		); err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "update user"})
 			return
 		}
-		// 2. пишем admin_id в клинику
-		if _, err := tx.Exec(`UPDATE clinics SET admin_id = $1 WHERE id = $2`,
-			req.UserID, clinicID); err != nil {
+
+		// 2) пишем admin_id в клинику
+		if _, err := tx.Exec(
+			`UPDATE clinics SET admin_id = $1 WHERE id = $2`,
+			req.UserID, clinicID,
+		); err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "update clinic"})
 			return
 		}
+
 		tx.Commit()
 		c.Status(http.StatusNoContent)
 	})
 
 	// ----------- снять администратора -------------
 	r.PATCH("/clinics/:id/remove-admin", func(c *gin.Context) {
-		idStr := c.Param("id")
-		clinicID, err := strconv.Atoi(idStr)
+		clinicID, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный id"})
 			return
@@ -123,17 +153,16 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "tx error"})
 			return
 		}
-		defer tx.Rollback() // откат если не commit'нули
+		defer tx.Rollback()
 
 		var adminID sql.NullInt64
 		if err := tx.QueryRow(
-			`SELECT admin_id FROM clinics WHERE id = $1 FOR UPDATE`, clinicID,
+			`SELECT admin_id FROM clinics WHERE id = $1 FOR UPDATE`,
+			clinicID,
 		).Scan(&adminID); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "клиника не найдена"})
 			return
 		}
-
-		// если администратора и так нет, просто выходим 204
 		if !adminID.Valid {
 			tx.Commit()
 			c.Status(http.StatusNoContent)
@@ -142,7 +171,8 @@ func main() {
 
 		// 1) убираем admin_id у клиники
 		if _, err := tx.Exec(
-			`UPDATE clinics SET admin_id = NULL WHERE id = $1`, clinicID,
+			`UPDATE clinics SET admin_id = NULL WHERE id = $1`,
+			clinicID,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "update clinics"})
 			return
@@ -150,7 +180,8 @@ func main() {
 
 		// 2) понижаем роль пользователя
 		if _, err := tx.Exec(
-			`UPDATE users SET role = 'patient' WHERE id = $1`, adminID.Int64,
+			`UPDATE users SET role = 'patient' WHERE id = $1`,
+			adminID.Int64,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "update user role"})
 			return
@@ -160,7 +191,6 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "commit error"})
 			return
 		}
-
 		c.Status(http.StatusNoContent)
 	})
 
