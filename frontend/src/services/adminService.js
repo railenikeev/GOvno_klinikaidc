@@ -64,10 +64,18 @@ export async function addDoctor({ userId, specialization }) {
             'Content-Type': 'application/json',
             ...authHeaders(),
         },
-        body: JSON.stringify({ userId, specialization }),
+        // backend expects user_id field
+        body: JSON.stringify({ user_id: userId, specialization }),
     });
     // users-service отвечает 204 No Content при успехе
-    if (res.status === 204) return getDoctor(userId);
+    if (res.status === 204) {
+        // возвращаем объект нового врача (без фамилии/имени, они подгрузятся при следующем полном запросе)
+        return {
+            id: userId,
+            full_name: '',
+            specialization,
+        };
+    }
     return jsonOrError(res, 'Ошибка добавления врача');
 }
 
