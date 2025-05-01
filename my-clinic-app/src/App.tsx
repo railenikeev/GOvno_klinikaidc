@@ -12,6 +12,10 @@ import NotificationsPage from './pages/NotificationsPage';
 import ManageSchedulePage from './pages/doctor/ManageSchedulePage';
 import ViewAppointmentsPage from './pages/doctor/ViewAppointmentsPage';
 import PatientRecordPage from './pages/doctor/PatientRecordPage';
+import ManageSpecializationsPage from './pages/admin/ManageSpecializationsPage';
+import ManageUsersPage from './pages/admin/ManageUsersPage';
+import ManageAllSchedulesPage from './pages/admin/ManageAllSchedulesPage';
+import ViewAllAppointmentsPage from './pages/admin/ViewAllAppointmentsPage';
 import { useAuth } from './contexts/AuthContext';
 
 function App() {
@@ -51,7 +55,10 @@ function App() {
                 </Route>
 
                 <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
-                    <Route path="/admin/users" element={<AdminUsersPage />} />
+                    <Route path="/admin/specializations" element={<ManageSpecializationsPage />} />
+                    <Route path="/admin/users" element={<ManageUsersPage />} />
+                    <Route path="/admin/schedules" element={<ManageAllSchedulesPage />} />
+                    <Route path="/admin/appointments" element={<ViewAllAppointmentsPage />} />
                 </Route>
 
                 {/* Маршрут 404 */}
