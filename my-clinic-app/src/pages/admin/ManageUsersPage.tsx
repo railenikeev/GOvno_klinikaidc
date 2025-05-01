@@ -1,31 +1,29 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Добавили useCallback
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Edit, Trash2 } from 'lucide-react'; // Иконки для кнопок
+import { Edit, Trash2 } from 'lucide-react';
+import axios from 'axios'; // Для проверки ошибок
 
+import apiClient from '@/services/apiClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent} from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Select для роли/специализации
+//import { Input } from '@/components/ui/input'; // Оставим, вдруг понадобится
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toaster, toast } from "sonner";
-import { useAuth } from '@/contexts/AuthContext'; // Чтобы не удалить самого себя
 
-// --- Типы и Mock Данные ---
+// --- Типы ---
 interface Specialization {
     id: number;
     name: string;
 }
-const MOCK_SPECIALIZATIONS: Specialization[] = [
-    { id: 1, name: 'Терапевт' }, { id: 2, name: 'Кардиолог' },
-    { id: 3, name: 'Невролог' }, { id: 4, name: 'Окулист' },
-];
 
 interface UserAdminView {
     id: number;
@@ -34,123 +32,182 @@ interface UserAdminView {
     phone: string;
     role: 'patient' | 'doctor' | 'admin';
     specialization_id?: number | null;
+    specialization_name?: string | null; // Бэкенд теперь возвращает имя
 }
-const MOCK_USERS_DATA: UserAdminView[] = [
-    { id: 1, full_name: 'Администратор Первый', email: 'admin@example.com', phone: '111111', role: 'admin' },
-    { id: 2, full_name: 'Доктор Петров В.А.', email: 'petrov@example.com', phone: '222222', role: 'doctor', specialization_id: 1 },
-    { id: 3, full_name: 'Пациент Андреев А.А.', email: 'andreev@example.com', phone: '333333', role: 'patient' },
-    { id: 4, full_name: 'Доктор Сидорова Е.П.', email: 'sidorova@example.com', phone: '444444', role: 'doctor', specialization_id: 2 },
-    { id: 5, full_name: 'Доктор Иванов И.И.', email: 'ivanov@example.com', phone: '555555', role: 'doctor', specialization_id: 3 },
-    { id: 6, full_name: 'Пациентка Белова О.О.', email: 'belova@example.com', phone: '666666', role: 'patient' },
-];
-// --- Конец Mock Данных ---
+// --- Конец Типы ---
 
-// Схема для формы редактирования пользователя
+// УДАЛЕНЫ MOCK_USERS_DATA и MOCK_SPECIALIZATIONS
+
+// --- Схема для формы редактирования ---
 const userEditSchema = z.object({
-    // Пока разрешим менять только роль и специализацию
     role: z.enum(['patient', 'doctor', 'admin'], { required_error: "Выберите роль" }),
-    // specialization_id делаем строкой из Select, потом преобразуем в число или null
     specializationId: z.string().optional(),
-    // Можно добавить и другие поля: fullName, phone...
-});
+}).refine(data => {
+    if (data.role === 'doctor') { return data.specializationId && data.specializationId !== 'null' && data.specializationId !== ''; }
+    return true;
+}, { message: "Для врача необходимо выбрать специализацию", path: ["specializationId"]});
 type UserEditFormValues = z.infer<typeof userEditSchema>;
+// --- Конец Схема ---
 
 
 const ManageUsersPage: React.FC = () => {
-    const { user: adminUser } = useAuth(); // Текущий админ
-    const [users, setUsers] = useState<UserAdminView[]>(MOCK_USERS_DATA);
-    const [specializations] = useState<Specialization[]>(MOCK_SPECIALIZATIONS); // Для <Select>
+    const { user: adminUser } = useAuth();
+    const [users, setUsers] = useState<UserAdminView[]>([]); // Начинаем с пустого массива
+    const [specializations, setSpecializations] = useState<Specialization[]>([]); // Загрузим реальные
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
 
     const [isEditUserDialogOpen, setIsEditUserDialogOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<UserAdminView | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [deletingUser, setDeletingUser] = useState<UserAdminView | null>(null);
+    const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-    // Форма редактирования
-    const form = useForm<UserEditFormValues>({
-        resolver: zodResolver(userEditSchema),
-    });
+    const form = useForm<UserEditFormValues>({ resolver: zodResolver(userEditSchema) });
+    const { formState: { isSubmitting } } = form;
 
-    // Открытие диалога редактирования
+
+    // --- Функция загрузки данных (Пользователи и Специализации) ---
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const [usersResponse, specsResponse] = await Promise.all([
+                apiClient.get<UserAdminView[]>('/users'), // GET /api/users
+                apiClient.get<Specialization[]>('/specializations') // GET /api/specializations
+            ]);
+            // Сортируем пользователей по имени
+            usersResponse.data.sort((a, b) => a.full_name.localeCompare(b.full_name));
+            setUsers(usersResponse.data);
+            setSpecializations(specsResponse.data);
+        } catch (err) {
+            console.error("Ошибка загрузки данных:", err);
+            const message = "Не удалось загрузить данные пользователей или специализаций.";
+            setError(message);
+            toast.error(message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchData().catch(console.error);
+    }, [fetchData]); // Вызываем при монтировании
+
+
+    // --- CRUD Операции с API ---
     const handleEdit = (userToEdit: UserAdminView) => {
         setEditingUser(userToEdit);
-        form.reset({ // Заполняем форму текущими данными
+        form.reset({
             role: userToEdit.role,
-            // Преобразуем ID специализации в строку для Select, или пустую строку если null/undefined
             specializationId: userToEdit.specialization_id?.toString() ?? "",
         });
         setIsEditUserDialogOpen(true);
     };
 
-    // Открытие диалога удаления
     const handleDelete = (userToDelete: UserAdminView) => {
-        if (userToDelete.id === adminUser?.id) {
-            toast.error("Нельзя удалить самого себя.");
-            return;
-        }
+        if (userToDelete.id === adminUser?.id) { toast.error("Нельзя удалить самого себя."); return; }
         setDeletingUser(userToDelete);
         setIsDeleteDialogOpen(true);
     };
 
-    // Сохранение изменений пользователя (имитация)
-    const onEditUserSubmit = (data: UserEditFormValues) => {
+    // Сохранение изменений пользователя (с API)
+    const onEditUserSubmit = async (data: UserEditFormValues) => {
         if (!editingUser) return;
 
-        const updatedUser: UserAdminView = {
-            ...editingUser,
+        const specIdStr = data.specializationId;
+        const specId = data.role === 'doctor' && specIdStr && specIdStr !== 'null'
+            ? parseInt(specIdStr, 10)
+            : null;
+
+        // Дополнительная проверка на NaN после parseInt
+        if (data.role === 'doctor' && (specId === null || isNaN(specId))) {
+            toast.error("Некорректный ID специализации выбран.");
+            form.setError("specializationId", {type: "manual", message: "Выберите корректную специализацию"});
+            return;
+        }
+
+        const payload = {
             role: data.role,
-            // Преобразуем строку specializationId обратно в число или null
-            specialization_id: data.role === 'doctor' && data.specializationId ? parseInt(data.specializationId, 10) : null,
+            specialization_id: specId, // Отправляем number | null
         };
 
-        // Если роль сменили на не-врача, обнуляем специализацию
-        if (updatedUser.role !== 'doctor') {
-            updatedUser.specialization_id = null;
-        }
-        // Если роль стала врач, но специализация не выбрана (хотя форма должна требовать)
-        if (updatedUser.role === 'doctor' && !updatedUser.specialization_id) {
-            toast.error("Для роли 'Врач' необходимо выбрать специализацию.");
-            return; // Прерываем сохранение
-        }
+        let errorMessage = "Не удалось обновить пользователя.";
 
-
-        console.log("Обновление пользователя (имитация):", updatedUser);
-        // Имитация API вызова
         try {
-            setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-            toast.success(`Данные пользователя "${updatedUser.full_name}" обновлены.`);
+            // Вызываем PATCH API
+            await apiClient.patch(`/users/${editingUser.id}`, payload);
+            toast.success(`Данные пользователя "${editingUser.full_name}" обновлены.`);
             setIsEditUserDialogOpen(false);
             setEditingUser(null);
+            await fetchData(); // Обновляем список пользователей
         } catch (error) {
-            toast.error("Ошибка при обновлении пользователя.");
-            console.error("Ошибка обновления:", error);
+            console.error("Ошибка обновления пользователя:", error);
+            if (axios.isAxiosError(error) && error.response) {
+                errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
+                // Обработка ошибки ненайденной специализации от бэкенда
+                if(error.response.status === 400 && error.response.data?.error?.includes("Специализация")) {
+                    form.setError("specializationId", { type: "manual", message: error.response.data.error });
+                } else {
+                    toast.error(errorMessage);
+                }
+            } else if (error instanceof Error) {
+                toast.error(error.message || errorMessage);
+            } else {
+                toast.error(errorMessage);
+            }
+            // Оставляем диалог открытым при ошибке
         }
     };
 
-    // Подтверждение удаления (имитация)
-    const handleDeleteConfirm = () => {
+    // Подтверждение удаления (с API)
+    const handleDeleteConfirm = async () => {
         if (!deletingUser) return;
-        console.log("Удаление пользователя (имитация):", deletingUser);
-        // Имитация API вызова
+        setIsDeleting(true);
+
+        let errorMessage = "Не удалось удалить пользователя.";
+
         try {
-            setUsers(prev => prev.filter(u => u.id !== deletingUser.id));
+            // Вызываем DELETE API
+            await apiClient.delete(`/users/${deletingUser.id}`);
             toast.success(`Пользователь "${deletingUser.full_name}" удален.`);
+            // Обновляем список локально
+            setUsers(prev => prev.filter(u => u.id !== deletingUser.id));
+            // await fetchData(); // Или перезагружаем
+
+        } catch (error) {
+            console.error("Ошибка удаления пользователя:", error);
+            if (axios.isAxiosError(error) && error.response) {
+                errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
+                // Обработка конфликта (409) или запрета (403 - само удаление)
+                if (error.response.status === 409 || error.response.status === 403) {
+                    errorMessage = error.response.data?.error || errorMessage;
+                }
+            } else if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            toast.error(errorMessage);
+        } finally {
+            setIsDeleting(false);
             setIsDeleteDialogOpen(false);
             setDeletingUser(null);
-        } catch (error) {
-            toast.error("Ошибка при удалении пользователя.");
-            console.error("Ошибка удаления:", error);
         }
     };
 
-    // Получаем имя специализации по ID для отображения в таблице
-    const getSpecializationName = (id?: number | null): string => {
-        if (!id) return '-';
-        return specializations.find(s => s.id === id)?.name ?? 'Неизвестно';
+    // Используем specialization_name, которое приходит от API GET /users
+    const getSpecializationName = (specName?: string | null): string => {
+        return specName ?? '-'; // Если имя пришло - показываем, иначе - прочерк
     };
 
-    // Наблюдаем за выбранной ролью в форме, чтобы показать/скрыть выбор специализации
     const selectedRoleInForm = form.watch('role');
+
+    // --- Рендеринг ---
+    if (isLoading) {
+        return <div className="container mx-auto p-4">Загрузка данных...</div>;
+    }
+    if (error) {
+        return <div className="container mx-auto p-4 text-red-500">{error}</div>;
+    }
 
     return (
         <div className="container mx-auto p-4">
@@ -166,17 +223,7 @@ const ManageUsersPage: React.FC = () => {
             <Card>
                 <CardContent className="p-0">
                     <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-[50px]">ID</TableHead>
-                                <TableHead>Имя</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Телефон</TableHead>
-                                <TableHead>Роль</TableHead>
-                                <TableHead>Специализация</TableHead>
-                                <TableHead className="text-right w-[100px]">Действия</TableHead>
-                            </TableRow>
-                        </TableHeader>
+                        <TableHeader> <TableRow> <TableHead className="w-[50px]">ID</TableHead> <TableHead>Имя</TableHead> <TableHead>Email</TableHead> <TableHead>Телефон</TableHead> <TableHead>Роль</TableHead> <TableHead>Специализация</TableHead> <TableHead className="text-right w-[100px]">Действия</TableHead> </TableRow> </TableHeader>
                         <TableBody>
                             {users.length === 0 ? (
                                 <TableRow> <TableCell colSpan={7} className="h-24 text-center">Пользователи не найдены.</TableCell> </TableRow>
@@ -188,35 +235,18 @@ const ManageUsersPage: React.FC = () => {
                                         <TableCell>{userItem.email}</TableCell>
                                         <TableCell>{userItem.phone}</TableCell>
                                         <TableCell><Badge variant={userItem.role === 'admin' ? 'default' : userItem.role === 'doctor' ? 'secondary' : 'outline'}>{userItem.role}</Badge></TableCell>
-                                        <TableCell>{getSpecializationName(userItem.specialization_id)}</TableCell>
+                                        {/* Используем specialization_name из данных пользователя */}
+                                        <TableCell>{getSpecializationName(userItem.specialization_name)}</TableCell>
                                         <TableCell className="text-right space-x-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(userItem)}>
-                                                <Edit className="h-4 w-4" />
-                                                <span className="sr-only">Редактировать</span>
-                                            </Button>
-                                            <AlertDialog>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(userItem)}> <Edit className="h-4 w-4" /> <span className="sr-only">Редактировать</span> </Button>
+                                            <AlertDialog open={isDeleteDialogOpen && deletingUser?.id === userItem.id} onOpenChange={ (open) => {if(!open) setIsDeleteDialogOpen(false)} }>
                                                 <AlertDialogTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive/80" onClick={() => handleDelete(userItem)} disabled={userItem.id === adminUser?.id}> {/* Не даем удалить себя */}
-                                                        <Trash2 className="h-4 w-4" />
-                                                        <span className="sr-only">Удалить</span>
-                                                    </Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive/80" onClick={() => handleDelete(userItem)} disabled={userItem.id === adminUser?.id || isDeleting}> <Trash2 className="h-4 w-4" /> <span className="sr-only">Удалить</span> </Button>
                                                 </AlertDialogTrigger>
-                                                {/* Диалог рендерится только когда открыт */}
-                                                {isDeleteDialogOpen && deletingUser?.id === userItem.id && (
+                                                {deletingUser?.id === userItem.id && (
                                                     <AlertDialogContent>
-                                                        <AlertDialogHeader>
-                                                            <AlertDialogTitle>Подтвердить удаление</AlertDialogTitle>
-                                                            <AlertDialogDescription>
-                                                                Вы уверены, что хотите удалить пользователя <span className="font-semibold">{deletingUser?.full_name}</span>?
-                                                                Это действие необратимо.
-                                                            </AlertDialogDescription>
-                                                        </AlertDialogHeader>
-                                                        <AlertDialogFooter>
-                                                            <AlertDialogCancel onClick={() => setDeletingUser(null)}>Отмена</AlertDialogCancel>
-                                                            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                                Удалить
-                                                            </AlertDialogAction>
-                                                        </AlertDialogFooter>
+                                                        <AlertDialogHeader> <AlertDialogTitle>Подтвердить удаление</AlertDialogTitle> <AlertDialogDescription> Вы уверены, что хотите удалить пользователя <span className="font-semibold">{deletingUser?.full_name}</span>? </AlertDialogDescription> </AlertDialogHeader>
+                                                        <AlertDialogFooter> <AlertDialogCancel onClick={() => setDeletingUser(null)}>Отмена</AlertDialogCancel> <AlertDialogAction onClick={handleDeleteConfirm} disabled={isDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90"> {isDeleting ? 'Удаление...' : 'Удалить'} </AlertDialogAction> </AlertDialogFooter>
                                                     </AlertDialogContent>
                                                 )}
                                             </AlertDialog>
@@ -232,76 +262,30 @@ const ManageUsersPage: React.FC = () => {
             {/* Диалог Редактирования Пользователя */}
             <Dialog open={isEditUserDialogOpen} onOpenChange={setIsEditUserDialogOpen}>
                 <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                        <DialogTitle>Редактировать пользователя: {editingUser?.full_name}</DialogTitle>
-                        <DialogDescription>Измените роль и/или специализацию.</DialogDescription>
-                    </DialogHeader>
+                    <DialogHeader> <DialogTitle>Редактировать: {editingUser?.full_name}</DialogTitle> <DialogDescription>Измените роль и/или специализацию.</DialogDescription> </DialogHeader>
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onEditUserSubmit)} className="space-y-4 py-4">
-                            {/* Выбор Роли */}
-                            <FormField
-                                control={form.control}
-                                name="role"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Роль</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Выберите роль..." />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                <SelectItem value="patient">Patient</SelectItem>
-                                                <SelectItem value="doctor">Doctor</SelectItem>
-                                                <SelectItem value="admin">Admin</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                            {/* Выбор Специализации (только если выбрана роль doctor) */}
+                            <FormField control={form.control} name="role" render={({ field }) => (
+                                <FormItem> <FormLabel>Роль *</FormLabel> <Select onValueChange={field.onChange} defaultValue={field.value}> <FormControl> <SelectTrigger> <SelectValue placeholder="Выберите роль..." /> </SelectTrigger> </FormControl> <SelectContent> <SelectItem value="patient">Patient</SelectItem> <SelectItem value="doctor">Doctor</SelectItem> <SelectItem value="admin">Admin</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem>
+                            )}/>
                             {selectedRoleInForm === 'doctor' && (
-                                <FormField
-                                    control={form.control}
-                                    name="specializationId"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Специализация *</FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Выберите специализацию..." />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {specializations.map(spec => (
-                                                        <SelectItem key={spec.id} value={spec.id.toString()}>
-                                                            {spec.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                <FormField control={form.control} name="specializationId" render={({ field }) => (
+                                    <FormItem> <FormLabel>Специализация *</FormLabel> <Select onValueChange={field.onChange} defaultValue={field.value ?? ""}> <FormControl> <SelectTrigger> <SelectValue placeholder="Выберите специализацию..." /> </SelectTrigger> </FormControl> <SelectContent> {specializations.length === 0 && <SelectItem value="null" disabled>Нет доступных специализаций</SelectItem>} {specializations.map(spec => ( <SelectItem key={spec.id} value={spec.id.toString()}> {spec.name} </SelectItem> ))} </SelectContent> </Select> <FormMessage /> </FormItem>
+                                )}/>
                             )}
-
                             <DialogFooter>
-                                <DialogClose asChild>
-                                    <Button type="button" variant="outline">Отмена</Button>
-                                </DialogClose>
-                                <Button type="submit" disabled={form.formState.isSubmitting}>
-                                    {form.formState.isSubmitting ? 'Сохранение...' : 'Сохранить'}
-                                </Button>
+                                <DialogClose asChild> <Button type="button" variant="outline">Отмена</Button> </DialogClose>
+                                <Button type="submit" disabled={isSubmitting}> {isSubmitting ? 'Сохранение...' : 'Сохранить'} </Button>
                             </DialogFooter>
                         </form>
                     </Form>
                 </DialogContent>
             </Dialog>
 
+            {/* Кнопка Назад */}
+            <Button variant="outline" asChild className="mt-6">
+                <Link to="/">Назад к панели</Link>
+            </Button>
         </div>
     );
 };
