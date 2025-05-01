@@ -1,35 +1,45 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import DashboardPage from './pages/DashboardPage';
+import NotFoundPage from './pages/NotFoundPage';
+import ProtectedRoute from './components/ProtectedRoute';
+import MakeAppointmentPage from './pages/MakeAppointmentPage';
+import MyAppointmentsPage from './pages/MyAppointmentsPage';
+import { useAuth } from './contexts/AuthContext';
 
 function App() {
-  const [count, setCount] = useState(0)
+    const { token, isLoading } = useAuth(); // Получаем isLoading
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    // Используем isLoading: пока true, показываем заглушку
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                Загрузка приложения...
+            </div>
+        );
+    }
+
+    return (
+        <BrowserRouter>
+            <Routes>
+                {/* Публичные маршруты: редирект если уже вошел */}
+                <Route path="/login" element={!token ? <LoginPage /> : <Navigate to="/" replace />} />
+                <Route path="/register" element={!token ? <RegisterPage /> : <Navigate to="/" replace />} />
+
+                {/* Защищенные маршруты */}
+                <Route element={<ProtectedRoute />}>
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/make-appointment" element={<MakeAppointmentPage />} />
+                    <Route path="/my-appointments" element={<MyAppointmentsPage />} />
+                    {/* Другие защищенные маршруты */}
+                </Route>
+
+                {/* Маршрут 404 */}
+                <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+        </BrowserRouter>
+    );
 }
 
-export default App
+export default App;
