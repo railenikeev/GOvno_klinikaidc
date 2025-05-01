@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { format, parseISO, isFuture } from 'date-fns';
+import { format, parseISO, isFuture, addDays } from 'date-fns'; // Добавили addDays для mock
 import { ru } from 'date-fns/locale';
 import { Trash2 } from 'lucide-react'; // Иконка
+import axios from 'axios'; // Нужен для проверки типа ошибки
 
+import apiClient from '@/services/apiClient'; // Подключаем apiClient для удаления
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// Удалили CardHeader, CardTitle
+import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -26,6 +29,7 @@ interface AppointmentAdminView {
 }
 
 // Создаем mock-данные, связанные с нашими mock-врачами/пациентами
+// Убедись, что ID врачей/пациентов соответствуют MOCK_USERS_DATA из ManageUsersPage
 const MOCK_APPOINTMENTS_DATA: AppointmentAdminView[] = [
     { id: 101, patient_id: 3, patient_name: 'Пациент Андреев А.А.', doctor_id: 2, doctor_name: 'Доктор Петров В.А.', date: format(addDays(new Date(), 1), 'yyyy-MM-dd'), start_time: '09:00', status: 'scheduled'},
     { id: 102, patient_id: 6, patient_name: 'Пациентка Белова О.О.', doctor_id: 4, doctor_name: 'Доктор Сидорова Е.П.', date: format(addDays(new Date(), 1), 'yyyy-MM-dd'), start_time: '14:00', status: 'scheduled'},
@@ -51,16 +55,16 @@ const getStatusVariant = (status: string): "default" | "secondary" | "destructiv
 const ViewAllAppointmentsPage: React.FC = () => {
     // Используем mock данные
     const [appointments, setAppointments] = useState<AppointmentAdminView[]>(MOCK_APPOINTMENTS_DATA);
-    const [isLoading, setIsLoading] = useState<boolean>(false); // Для имитации загрузки в будущем
-    const [filterPatient, setFilterPatient] = useState(''); // Состояние для фильтра по пациенту
-    const [filterDoctor, setFilterDoctor] = useState(''); // Состояние для фильтра по врачу
+    const [isLoading] = useState<boolean>(false); // Используем false, т.к. данные mock
+    const [filterPatient, setFilterPatient] = useState('');
+    const [filterDoctor, setFilterDoctor] = useState('');
 
     // Состояния для диалога удаления
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [deletingAppointment, setDeletingAppointment] = useState<AppointmentAdminView | null>(null);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-    // Фильтрация записей на клиенте (т.к. данные mock)
+    // Фильтрация записей на клиенте
     const filteredAppointments = useMemo(() => {
         return appointments.filter(appt => {
             const patientMatch = !filterPatient || appt.patient_name.toLowerCase().includes(filterPatient.toLowerCase());
@@ -75,6 +79,7 @@ const ViewAllAppointmentsPage: React.FC = () => {
             toast.info("Можно отменить только запланированные записи.");
             return;
         }
+        // Убрали проверку на isFuture для админа, он может отменять и сегодняшние? Или оставить? Оставим пока.
         if (!isFuture(parseISO(appt.date))) {
             toast.info("Нельзя отменить прошедшую запись.");
             return;
@@ -83,29 +88,29 @@ const ViewAllAppointmentsPage: React.FC = () => {
         setIsDeleteDialogOpen(true);
     };
 
-    // Подтверждение удаления (имитация)
+    // Подтверждение удаления (с реальным API)
     const handleDeleteConfirm = async () => {
         if (!deletingAppointment) return;
         setIsDeleting(true);
         setIsDeleteDialogOpen(false);
 
-        try {
-            // --- Имитация вызова API ---
-            console.log(`Админ имитирует отмену записи ID: ${deletingAppointment.id}`);
-            // Закомментировано до реализации бэкенда:
-            // await apiClient.patch(`/appointments/${deletingAppointment.id}/status`, { status: 'cancelled' }); // Или DELETE? Зависит от API
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            // --- Конец имитации ---
+        let errorMessage = "Не удалось отменить запись.";
 
-            toast.success(`Запись #${deletingAppointment.id} успешно отменена.`);
-            // Обновляем статус в локальном состоянии
-            setAppointments(prev => prev.map(a =>
-                a.id === deletingAppointment.id ? { ...a, status: 'cancelled' } : a
-            ));
+        try {
+            // --- Вызов API для отмены/удаления ---
+            await apiClient.delete(`/appointments/${deletingAppointment.id}`); // DELETE /api/appointments/:id
+            toast.success(`Запись #${deletingAppointment.id} успешно отменена (удалена).`);
+            // Обновляем список локально
+            setAppointments(prev => prev.filter(a => a.id !== deletingAppointment.id));
 
         } catch (error) {
             console.error("Ошибка отмены записи (админ):", error);
-            toast.error("Не удалось отменить запись.");
+            if (axios.isAxiosError(error) && error.response) {
+                errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
+            } else if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            toast.error(errorMessage);
         } finally {
             setIsDeleting(false);
             setDeletingAppointment(null);
@@ -155,7 +160,7 @@ const ViewAllAppointmentsPage: React.FC = () => {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {isLoading && ( /* Пока не используется, т.к. mock данные */
+                            {isLoading && (
                                 <TableRow> <TableCell colSpan={7} className="h-24 text-center">Загрузка...</TableCell> </TableRow>
                             )}
                             {!isLoading && filteredAppointments.length === 0 ? (
@@ -172,17 +177,15 @@ const ViewAllAppointmentsPage: React.FC = () => {
                                             <Badge variant={getStatusVariant(appointment.status)}>{appointment.status}</Badge>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            {/* Кнопка Отмены (только для запланированных будущих) */}
                                             {appointment.status === 'scheduled' && isFuture(parseISO(appointment.date)) && (
-                                                <AlertDialog>
+                                                <AlertDialog open={isDeleteDialogOpen && deletingAppointment?.id === appointment.id} onOpenChange={ (open) => {if(!open) setIsDeleteDialogOpen(false)} }>
                                                     <AlertDialogTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive/80" disabled={isDeleting && deletingAppointment?.id === appointment.id}>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive/80" onClick={() => handleDeleteClick(appointment)} disabled={isDeleting && deletingAppointment?.id === appointment.id}>
                                                             {isDeleting && deletingAppointment?.id === appointment.id ? <span className="animate-spin text-xs">...</span> : <Trash2 className="h-4 w-4" />}
                                                             <span className="sr-only">Отменить</span>
                                                         </Button>
                                                     </AlertDialogTrigger>
-                                                    {/* Диалог рендерится только когда открыт */}
-                                                    {isDeleteDialogOpen && deletingAppointment?.id === appointment.id && (
+                                                    {deletingAppointment?.id === appointment.id && (
                                                         <AlertDialogContent>
                                                             <AlertDialogHeader>
                                                                 <AlertDialogTitle>Отменить запись?</AlertDialogTitle>
@@ -200,7 +203,7 @@ const ViewAllAppointmentsPage: React.FC = () => {
                                                     )}
                                                 </AlertDialog>
                                             )}
-                                            {/* Можно добавить кнопку просмотра деталей записи или ЭМК */}
+                                            {appointment.status !== 'scheduled' && <span className="text-xs text-muted-foreground">-</span>}
                                         </TableCell>
                                     </TableRow>
                                 ))
