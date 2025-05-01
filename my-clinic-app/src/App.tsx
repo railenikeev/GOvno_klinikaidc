@@ -10,6 +10,8 @@ import MyMedicalRecordsPage from './pages/MyMedicalRecordsPage';
 import MyPaymentsPage from './pages/MyPaymentsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import ManageSchedulePage from './pages/doctor/ManageSchedulePage';
+import ViewAppointmentsPage from './pages/doctor/ViewAppointmentsPage';
+import PatientRecordPage from './pages/doctor/PatientRecordPage';
 import { useAuth } from './contexts/AuthContext';
 
 function App() {
@@ -44,8 +46,8 @@ function App() {
 
                 <Route element={<ProtectedRoute allowedRoles={['doctor']} />}> {/* <-- Защита по роли */}
                     <Route path="/manage-schedule" element={<ManageSchedulePage />} />
-                    {/* <Route path="/view-appointments" element={<DoctorAppointmentsPage />} /> */}
-                    {/* <Route path="/patient-record/:patientId" element={<DoctorPatientRecordPage />} /> */}
+                    <Route path="/view-appointments" element={<ViewAppointmentsPage />} />
+                    <Route path="/patient-record/:patientId" element={<PatientRecordPage />} />
                 </Route>
 
                 <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
