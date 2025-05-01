@@ -36,8 +36,12 @@ services:
       - db
     environment:
       DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
-    ports:
-      - "8080:8080"
+      # Добавляем переменную окружения JWT_SECRET
+      JWT_SECRET: "supersecret" # <-- Используем значение "supersecret"
+    # Порт 8080 для users service: Если он нужен только Gateway,
+    # рассмотрите возможность УДАЛИТЬ секцию ports, чтобы он не был доступен извне Docker сети.
+    # ports:
+    #   - "8080:8080"
 
   schedules:
     build:
@@ -48,6 +52,7 @@ services:
       - db
     environment:
       DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
+      # Для Schedules service JWT_SECRET не нужен, так как он читает заголовки от Gateway
     ports:
       - "8082:8082"
 
@@ -125,7 +130,11 @@ services:
       - notifications
       - clinics
     ports:
-      - "8000:8000"
+      - "8000:8000" # Порт, который будет доступен извне Docker сети (для фронтенда)
+    environment:
+      # Добавляем переменную окружения JWT_SECRET
+      # !!! ЗНАЧЕНИЕ ДОЛЖНО СОВПАДАТЬ С ТЕМ, ЧТО УКАЗАНО ДЛЯ USERS !!!
+      JWT_SECRET: "supersecret" # <-- Используем значение "supersecret"
 
 volumes:
   pgdata:

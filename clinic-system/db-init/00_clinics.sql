@@ -1,7 +1,0 @@
-CREATE TABLE IF NOT EXISTS clinics (
-    id SERIAL PRIMARY KEY,
-    city VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    address VARCHAR(255) NOT NULL,
-    phone VARCHAR(11) NOT NULL
-);
