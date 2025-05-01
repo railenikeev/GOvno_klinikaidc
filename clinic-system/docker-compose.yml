@@ -104,17 +104,6 @@ services:
     ports:
       - "8086:8086"
 
-  clinics:
-    build:
-      context: ./clinics
-    container_name: clinics_service
-    restart: always
-    depends_on:
-      - db
-    environment:
-      DATABASE_URL: postgres://postgres:mysecret@db:5432/clinic_system?sslmode=disable
-    ports:
-      - "8087:8087"
 
   gateway:
     build:
@@ -128,7 +117,6 @@ services:
       - medical_records
       - payments
       - notifications
-      - clinics
     ports:
       - "8000:8000" # Порт, который будет доступен извне Docker сети (для фронтенда)
     environment:

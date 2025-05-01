@@ -2,76 +2,76 @@ package main
 
 import (
 	"database/sql"
+	_ "errors" // Добавим для sql.ErrNoRows
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv" // Добавьте strconv
-	"time"
+	"strconv"
+	"strings"
+	"time" // Убедимся, что time импортирован
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // Драйвер PostgreSQL
 )
 
-// --- Структура для получения данных из запроса (frontend присылает строки) ---
+// --- Структура для получения данных из запроса ---
 type CreateSlotRequest struct {
-	Date      string `json:"date" binding:"required"`       // "YYYY-MM-DD"
-	StartTime string `json:"start_time" binding:"required"` // "HH:MM"
-	EndTime   string `json:"end_time" binding:"required"`   // "HH:MM"
+	Date      string `json:"date" binding:"required"`       // Формат "YYYY-MM-DD"
+	StartTime string `json:"start_time" binding:"required"` // Формат "HH:MM"
+	EndTime   string `json:"end_time" binding:"required"`   // Формат "HH:MM"
 }
 
-// --- Структура для модели данных в Go и ответа фронтенду ---
+// --- Структура для модели данных и ответа ---
 type ScheduleSlotModel struct {
 	ID          int    `json:"id"`
 	DoctorID    int    `json:"doctor_id"`
-	Date        string `json:"date"`       // Для ответа фронтенду, удобно строка YYYY-MM-DD
-	StartTime   string `json:"start_time"` // Для ответа фронтенду, удобно строка HH:MM
-	EndTime     string `json:"end_time"`   // Для ответа фронтенду, удобно строка HH:MM
+	Date        string `json:"date"`       // Формат "YYYY-MM-DD"
+	StartTime   string `json:"start_time"` // Формат "HH:MM"
+	EndTime     string `json:"end_time"`   // Формат "HH:MM"
 	IsAvailable bool   `json:"is_available"`
 }
 
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL не задан")
+		log.Fatal("Переменная окружения DATABASE_URL не задана")
 	}
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatal("Ошибка подключения к БД:", err)
+		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
 	defer db.Close()
 
-	err = db.Ping()
-	if err != nil {
+	if err = db.Ping(); err != nil {
 		log.Fatalf("Ошибка пинга БД: %v", err)
 	}
-	log.Println("Успешное подключение к БД!")
+	log.Println("Успешное подключение к БД (Schedules service)!")
 
 	r := gin.Default()
 
-	// --- Удаляем AuthMiddleware здесь! ---
-	// r.Use(AuthMiddleware())
-
-	// --- Группа маршрутов, специфичных для Schedules Service ---
-	// Теперь этот сервис ожидает, что Gateway добавит заголовки X-User-ID и X-User-Role
-	schedulesRoutes := r.Group("/schedules") // <- Группа /schedules
+	// Группа маршрутов /schedules
+	// Сервис полагается на аутентификацию и заголовки от Gateway
+	schedulesRoutes := r.Group("/schedules")
 	{
-		// Маршрут для добавления нового слота расписания
-		// POST /schedules (доступен через Gateway как POST /api/schedules)
+		// POST /schedules - Добавить новый слот (только для врача)
 		schedulesRoutes.POST("", CreateScheduleSlotHandler(db))
 
-		// Маршрут для получения слотов текущего доктора
-		// GET /schedules/my (доступен через Gateway как GET /api/schedules/my)
+		// GET /schedules/my - Получить слоты текущего врача (только для врача)
 		schedulesRoutes.GET("/my", GetMyScheduleSlotsHandler(db))
 
-		// TODO: Добавить другие маршруты /schedules/:id (PATCH, DELETE)
+		// TODO: Можно добавить маршруты для получения слотов конкретного врача по ID (для админа?)
+		// GET /schedules/doctor/:doctor_id
+
+		// TODO: Можно добавить маршруты для обновления/удаления слотов
+		// PATCH /schedules/:slot_id
+		// DELETE /schedules/:slot_id
 	}
 
-	// Удаляем старые ненужные маршруты
-
-	log.Println("Schedules service listening on :8082")
-	if err := r.Run(":8082"); err != nil {
+	port := ":8082" // Порт по умолчанию для сервиса расписаний
+	log.Printf("Schedules service запущен на порту %s", port)
+	if err := r.Run(port); err != nil {
 		log.Fatalf("Ошибка запуска Schedules service: %v", err)
 	}
 }
@@ -79,33 +79,31 @@ func main() {
 // --- Хендлер для добавления слота ---
 func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Получаем ID пользователя И роль из заголовков, добавленных Gateway
+		// 1. Получаем ID и роль пользователя из заголовков
 		userIDStr := c.GetHeader("X-User-ID")
 		userRole := c.GetHeader("X-User-Role")
 
 		if userIDStr == "" || userRole == "" {
-			// Этого не должно случиться, если Gateway работает правильно и применил middleware.
-			// Если все же происходит, это серьезная ошибка конфигурации или безопасности.
-			log.Println("ERROR: Received request without X-User-ID or X-User-Role headers.")
+			log.Println("Schedules ERROR: Заголовки X-User-ID/X-User-Role отсутствуют.")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Данные пользователя не получены от шлюза"})
 			return
 		}
 
 		currentUserID, err := strconv.Atoi(userIDStr)
 		if err != nil {
-			log.Printf("ERROR: Invalid X-User-ID header format: %v", err)
+			log.Printf("Schedules ERROR: Неверный формат X-User-ID: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обработки ID пользователя"})
 			return
 		}
 
-		// 2. Авторизация: Проверяем, что пользователь является ДОКТОРОМ
+		// 2. Авторизация: Только врач может добавлять слоты
 		if userRole != "doctor" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен. Только для врачей."})
+			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен. Только врачи могут добавлять слоты."})
 			return
 		}
-		// Теперь мы знаем, что currentUserID - это ID доктора
+		// currentUserID теперь точно ID врача
 
-		// 3. Парсим тело запроса (ожидаем строки date, start_time, end_time)
+		// 3. Парсим тело запроса
 		var req CreateSlotRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
@@ -113,12 +111,14 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// 4. Парсинг и валидация даты/времени
-		// ... (Валидация остается той же, как и раньше) ...
-		date, err := time.Parse("2006-01-02", req.Date)
+		// Используем ParseInLocation или Parse для учета часовых поясов, если это важно.
+		// Для простоты используем Parse.
+		dateParsed, err := time.Parse("2006-01-02", req.Date)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат даты (ожидается YYYY-MM-DD)"})
 			return
 		}
+		// Парсим время в time.Time для корректной передачи в БД (тип TIME)
 		startTimeParsed, err := time.Parse("15:04", req.StartTime)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат времени начала (ожидается HH:MM)"})
@@ -130,11 +130,14 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Валидация времени и даты
 		if !endTimeParsed.After(startTimeParsed) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Время окончания должно быть позже времени начала"})
 			return
 		}
-		if date.Before(time.Now().Truncate(24 * time.Hour)) {
+		// Сравниваем только дату, без времени
+		today := time.Now().Truncate(24 * time.Hour)
+		if dateParsed.Before(today) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Нельзя добавить слот на прошедшую дату"})
 			return
 		}
@@ -144,16 +147,23 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
                   VALUES ($1, $2, $3, $4, $5) RETURNING id`
 
 		var slotID int
+		// Передаем распарсенные dateParsed, startTimeParsed, endTimeParsed
 		err = db.QueryRow(query,
-			currentUserID, // Используем ID доктора из заголовков
-			date,
-			req.StartTime,
-			req.EndTime,
-			true,
+			currentUserID,   // ID врача
+			dateParsed,      // time.Time (для DATE)
+			startTimeParsed, // time.Time (для TIME)
+			endTimeParsed,   // time.Time (для TIME)
+			true,            // is_available
 		).Scan(&slotID)
 
 		if err != nil {
-			log.Printf("Ошибка БД при добавлении слота: %v", err)
+			// Проверяем на уникальность слота (если сработало UNIQUE constraint)
+			if strings.Contains(err.Error(), "duplicate key value violates unique constraint") &&
+				strings.Contains(err.Error(), "doctor_schedules_doctor_id_date_start_time_key") {
+				c.JSON(http.StatusConflict, gin.H{"error": "Такой слот времени у данного врача на эту дату уже существует"})
+				return
+			}
+			log.Printf("Schedules ERROR: Ошибка БД при добавлении слота: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при добавлении слота в базу данных"})
 			return
 		}
@@ -162,9 +172,9 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, ScheduleSlotModel{
 			ID:          slotID,
 			DoctorID:    currentUserID,
-			Date:        req.Date,
-			StartTime:   req.StartTime,
-			EndTime:     req.EndTime,
+			Date:        req.Date,      // Возвращаем в строковом формате
+			StartTime:   req.StartTime, // Возвращаем в строковом формате
+			EndTime:     req.EndTime,   // Возвращаем в строковом формате
 			IsAvailable: true,
 		})
 	}
@@ -173,37 +183,42 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 // --- Хендлер для получения слотов текущего доктора ---
 func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Получаем ID пользователя И роль из заголовков, добавленных Gateway
+		// 1. Получаем ID и роль пользователя из заголовков
 		userIDStr := c.GetHeader("X-User-ID")
 		userRole := c.GetHeader("X-User-Role")
 
 		if userIDStr == "" || userRole == "" {
-			log.Println("ERROR: Received request without X-User-ID or X-User-Role headers for GET /my.")
+			log.Println("Schedules ERROR: Заголовки X-User-ID/X-User-Role отсутствуют для GET /my.")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Данные пользователя не получены от шлюза"})
 			return
 		}
 
 		currentUserID, err := strconv.Atoi(userIDStr)
 		if err != nil {
-			log.Printf("ERROR: Invalid X-User-ID header format for GET /my: %v", err)
+			log.Printf("Schedules ERROR: Неверный формат X-User-ID для GET /my: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обработки ID пользователя"})
 			return
 		}
 
-		// 2. Авторизация: Проверяем, что пользователь является ДОКТОРОМ
+		// 2. Авторизация: Только врач может просматривать свое расписание через /my
 		if userRole != "doctor" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен. Только для врачей."})
 			return
 		}
-		// Теперь мы знаем, что currentUserID - это ID доктора
+		// currentUserID теперь точно ID врача
 
-		// 3. Запрос к базе данных - выбираем слоты ПО ID ДОКТОРА из заголовка
-		rows, err := db.Query(
-			`SELECT id, date, start_time, end_time, is_available FROM doctor_schedules WHERE doctor_id = $1 ORDER BY date, start_time`,
-			currentUserID, // Используем ID доктора из заголовка
-		)
+		// 3. Запрос к базе данных
+		// Выбираем только будущие или сегодняшние слоты? Можно добавить `WHERE date >= CURRENT_DATE`
+		// Пока выбираем все слоты этого врача
+		query := `
+            SELECT id, date, start_time, end_time, is_available
+            FROM doctor_schedules
+            WHERE doctor_id = $1
+            ORDER BY date, start_time`
+
+		rows, err := db.Query(query, currentUserID)
 		if err != nil {
-			log.Printf("Ошибка БД при выборке слотов для доктора %d: %v", currentUserID, err)
+			log.Printf("Schedules ERROR: Ошибка БД при выборке слотов для доктора %d: %v", currentUserID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении слотов из базы данных"})
 			return
 		}
@@ -212,32 +227,33 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		var slots []ScheduleSlotModel
 		for rows.Next() {
 			var s ScheduleSlotModel
-			var dbDate time.Time
-			var dbStartTime string // Сканируем время как строку
-			var dbEndTime string   // Сканируем время как строку
+			var dbDate time.Time // Сюда сканируем DATE
+			// Время сканируем как строки, так как оно в формате HH:MM и так и нужно для ответа
+			var dbStartTime string
+			var dbEndTime string
 
-			err := rows.Scan(&s.ID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable)
-			if err != nil {
-				log.Printf("Ошибка сканирования строки слота для доктора %d: %v", currentUserID, err)
+			if err := rows.Scan(&s.ID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); err != nil {
+				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для доктора %d: %v", currentUserID, err)
+				// Не прерываем весь запрос, просто пропускаем эту строку
 				continue
 			}
 
 			s.DoctorID = currentUserID
-
-			s.Date = dbDate.Format("2006-01-02")
+			s.Date = dbDate.Format("2006-01-02") // Форматируем дату в строку YYYY-MM-DD
 			s.StartTime = dbStartTime
 			s.EndTime = dbEndTime
 
 			slots = append(slots, s)
 		}
 
+		// Проверяем на ошибки после цикла чтения строк
 		if err = rows.Err(); err != nil {
-			log.Printf("Ошибка после чтения строк слотов для доктора %d: %v", currentUserID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке результатов из базы"})
+			log.Printf("Schedules ERROR: Ошибка после чтения строк слотов для доктора %d: %v", currentUserID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке результатов из базы данных"})
 			return
 		}
 
-		// 4. Успешный ответ
+		// 4. Успешный ответ (даже если список пустой)
 		c.JSON(http.StatusOK, slots)
 	}
 }

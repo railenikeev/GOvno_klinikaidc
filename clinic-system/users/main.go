@@ -13,313 +13,345 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // Драйвер PostgreSQL
 	"golang.org/x/crypto/bcrypt"
 )
 
-/* ──────────────── модели ──────────────── */
+/* ──────────────── Модели ──────────────── */
 
+// User - основная структура пользователя для JSON ответов
 type User struct {
-	ID             int     `json:"id"`
-	FullName       string  `json:"full_name"`
-	Email          string  `json:"email"`
-	Phone          string  `json:"phone"`
-	Role           string  `json:"role"`
-	ClinicID       *int    `json:"clinic_id"`
-	Specialization *string `json:"specialization,omitempty"`
+	ID                 int     `json:"id"`
+	FullName           string  `json:"full_name"`
+	Email              string  `json:"email"`
+	Phone              string  `json:"phone"`
+	Role               string  `json:"role"`
+	SpecializationID   *int    `json:"specialization_id,omitempty"`   // ID специализации (только для врачей)
+	SpecializationName *string `json:"specialization_name,omitempty"` // Название специализации (для отображения)
+	// ClinicID удалено
 }
 
 /* ──────────────── JWT ──────────────── */
 
-var jwtSecret = []byte("supersecret") // Точно такой же секрет должен быть в Gateway!
+var jwtSecret = []byte(os.Getenv("JWT_SECRET")) // Секрет из переменной окружения
 
-// extractUserID теперь только извлекает ID из токена, не занимается HTTP ответами
+func init() {
+	if len(jwtSecret) == 0 {
+		log.Println("ПРЕДУПРЕЖДЕНИЕ: Переменная окружения JWT_SECRET не установлена, используется значение по умолчанию 'supersecret'.")
+		jwtSecret = []byte("supersecret") // Значение по умолчанию
+	}
+}
+
+// extractUserIDFromToken извлекает ID пользователя из токена
 func extractUserIDFromToken(tokenStr string) (int, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		// Проверяем, что используется тот же метод подписи
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return 0, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
+			return nil, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
 		}
 		return jwtSecret, nil
 	})
 	if err != nil || !token.Valid {
-		// Сюда попадают ошибки парсинга, просроченные токены и неверные подписи
+		log.Printf("Ошибка валидации токена: %v", err)
 		return 0, errors.New("некорректный или просроченный токен")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return 0, errors.New("неверный формат claims в токене")
 	}
-	raw, ok := claims["user_id"]
+	rawUserID, ok := claims["user_id"]
 	if !ok {
 		return 0, errors.New("user_id не найден в токене")
 	}
-	// JWT Claims хранят числа как float64
-	idFloat, ok := raw.(float64)
+	userIDFloat, ok := rawUserID.(float64)
 	if !ok {
 		return 0, errors.New("user_id в токене не является числом")
 	}
-
-	return int(idFloat), nil
+	return int(userIDFloat), nil
 }
 
-/* ──────────────── main ──────────────── */
+/* ──────────────── Main ──────────────── */
 
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL не задан")
+		log.Fatal("Переменная окружения DATABASE_URL не задана")
 	}
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatal("Ошибка подключения к БД:", err)
+		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
 	defer db.Close()
 
 	// Проверка соединения
-	err = db.Ping()
-	if err != nil {
+	if err = db.Ping(); err != nil {
 		log.Fatalf("Ошибка пинга БД: %v", err)
 	}
 	log.Println("Успешное подключение к БД!")
 
 	r := gin.Default()
 
-	/* ---------- регистрация ---------- */
+	/* ---------- Регистрация ---------- */
 	r.POST("/register", func(c *gin.Context) {
 		var req struct {
-			FullName       string  `json:"full_name" binding:"required"`
-			Email          string  `json:"email" binding:"required,email"`
-			Password       string  `json:"password" binding:"required,min=6"`                                      // Добавим базовую валидацию
-			Phone          string  `json:"phone"`                                                                  // binding:"required" если нужен
-			Role           string  `json:"role" binding:"required,oneof=patient doctor admin_clinic admin_system"` // Проверка роли
-			ClinicID       *int    `json:"clinic_id"`
-			Specialization *string `json:"specialization"`
+			FullName         string `json:"full_name" binding:"required"`
+			Email            string `json:"email" binding:"required,email"`
+			Password         string `json:"password" binding:"required,min=6"`
+			Phone            string `json:"phone" binding:"required"`                           // Сделаем телефон обязательным
+			Role             string `json:"role" binding:"required,oneof=patient doctor admin"` // Обновленные роли
+			SpecializationID *int   `json:"specialization_id"`                                  // Теперь ID, необязательное поле
+			// ClinicID удален
 		}
-		if err := c.ShouldBindJSON(&req); err != nil { // Используем ShouldBindJSON для binding тегов
+
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
 		}
 
-		// Дополнительная проверка: если роль doctor или admin_clinic, clinic_id должен быть указан? (По вашей логике)
-		if (req.Role == "doctor" || req.Role == "admin_clinic") && req.ClinicID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Для роли '%s' требуется clinic_id", req.Role)})
+		// Проверка: если роль 'doctor', то specialization_id должен быть указан
+		if req.Role == "doctor" && req.SpecializationID == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Для роли 'doctor' требуется указать specialization_id"})
 			return
 		}
-		// Дополнительная проверка: если роль doctor, specialization должен быть указан? (По вашей логике)
-		if req.Role == "doctor" && (req.Specialization == nil || *req.Specialization == "") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Для роли 'doctor' требуется специализация"})
-			return
+		// Если роль не 'doctor', specialization_id должен быть nil (игнорируем переданное значение)
+		if req.Role != "doctor" {
+			req.SpecializationID = nil
 		}
 
-		// хэшируем пароль
+		// Хэшируем пароль
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			log.Printf("Ошибка при хэшировании пароля: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "внутренняя ошибка сервера"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})
 			return
 		}
 
-		// вставляем в users
+		// Вставляем пользователя в таблицу users
 		var userID int
 		err = db.QueryRow(
-			`INSERT INTO users
-            (full_name, email, password_hash, phone, role, clinic_id)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING id`,
-			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.ClinicID,
+			`INSERT INTO users (full_name, email, password_hash, phone, role, specialization_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id`,
+			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.SpecializationID, // Используем specialization_id
 		).Scan(&userID)
+
 		if err != nil {
-			// Проверка на UNIQUE constrain (например, email уже занят)
-			if strings.Contains(err.Error(), "unique constraint") { // Зависит от текста ошибки драйвера
-				c.JSON(http.StatusConflict, gin.H{"error": "Пользователь с таким email уже существует"})
+			// Проверка на UNIQUE constraint (например, email или телефон уже занят)
+			// Конкретный текст ошибки зависит от драйвера PostgreSQL
+			if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+				errorMessage := "Пользователь с таким email или телефоном уже существует"
+				if strings.Contains(err.Error(), "users_email_key") {
+					errorMessage = "Пользователь с таким email уже существует"
+				} else if strings.Contains(err.Error(), "users_phone_key") {
+					errorMessage = "Пользователь с таким телефоном уже существует"
+				}
+				c.JSON(http.StatusConflict, gin.H{"error": errorMessage})
 				return
 			}
 			log.Printf("Ошибка БД при регистрации пользователя: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при регистрации пользователя"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при регистрации пользователя"})
 			return
 		}
 
-		// если это врач — сразу же создаём запись в таблице doctors
-		if req.Role == "doctor" {
-			spec := ""
-			if req.Specialization != nil {
-				spec = *req.Specialization
-			}
-			// здесь мы используем именно тот же userID, что и в таблице users
-			if _, err := db.Exec(
-				`INSERT INTO doctors (id, full_name, specialty, clinic_id)
-             VALUES ($1,$2,$3,$4)`,
-				userID, req.FullName, spec, req.ClinicID,
-			); err != nil {
-				log.Printf("warning: не удалось добавить в doctors: %v", err)
-				// Не фейлим регистрацию, если не удалось добавить в doctors.
-				// Возможно, стоит добавить эту логику в сервис doctors,
-				// который будет слушать события создания пользователя с ролью doctor.
-			}
-		}
+		// Удалена вставка в отдельную таблицу doctors
 
 		c.JSON(http.StatusCreated, gin.H{"id": userID, "message": "Пользователь успешно зарегистрирован"})
 	})
 
-	/* ---------- вход ---------- */
+	/* ---------- Вход ---------- */
 	r.POST("/login", func(c *gin.Context) {
 		var req struct {
-			Email    string `json:"email" binding:"required"`
+			Email    string `json:"email" binding:"required,email"`
 			Password string `json:"password" binding:"required"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil { // Используем ShouldBindJSON
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
 		}
+
 		var id int
 		var hash string
-		var role string // Получаем роль при логине
+		var role string
 		err = db.QueryRow(
 			`SELECT id, password_hash, role FROM users WHERE email = $1`,
 			req.Email,
 		).Scan(&id, &hash, &role)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверные учётные данные"})
 				return
 			}
 			log.Printf("Ошибка БД при поиске пользователя: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "внутренняя ошибка сервера"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})
 			return
 		}
 
 		// Проверяем пароль
 		err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
-		if err != nil { // Сюда попадают bcrypt.ErrMismatchedHashAndPassword и другие ошибки сравнения
+		if err != nil { // Неверный пароль или ошибка bcrypt
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверные учётные данные"})
 			return
 		}
 
-		// создаём JWT с полем user_id (и, возможно, ролью, если хотим передавать роль в токене)
-		// Передача роли в токене немного снижает необходимость запроса к Users service из Gateway,
-		// но если роль изменится, токен станет неактуальным до перелогина.
-		// Давайте пока оставим только user_id в токене, как у вас было.
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		// Создаём JWT
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"user_id": id,
-			"exp":     time.Now().Add(24 * time.Hour).Unix(), // Срок действия токена
+			"exp":     time.Now().Add(24 * time.Hour).Unix(), // Токен действует 24 часа
 		})
-		tokenStr, err := tok.SignedString(jwtSecret)
+		tokenString, err := token.SignedString(jwtSecret)
 		if err != nil {
 			log.Printf("Ошибка при подписании токена: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "внутренняя ошибка сервера"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})
 			return
 		}
 
-		// возвращаем токен, ID пользователя и его роль
+		// Возвращаем токен, ID пользователя и его роль
 		c.JSON(http.StatusOK, gin.H{
-			"token":   tokenStr,
-			"user_id": id,   // Часто возвращают ID для удобства клиента
-			"role":    role, // Возвращаем роль, чтобы фронтенд мог сразу понять, кто залогинился
+			"token":   tokenString,
+			"user_id": id,
+			"role":    role,
 		})
 	})
 
-	/* ---------- профиль (требует токена) ---------- */
-	// Используем функцию extractUserIDFromToken напрямую или через middleware, если хотим защитить этот эндпоинт токеном
-	// Давайте сделаем middleware для защиты эндпоинтов, требующих токена.
-	// Этот middleware будет похож на то, что мы сделаем в Gateway, но без проверки роли для конкретного ресурса.
-
-	// Middleware для проверки только наличия и валидности токена
+	/* ---------- Middleware для аутентификации ---------- */
 	authRequired := func(c *gin.Context) {
-		auth := c.GetHeader("Authorization")
-		if auth == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует токен аутентификации"})
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует заголовок Authorization"})
 			c.Abort()
 			return
 		}
-		parts := strings.Fields(auth)
+
+		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Некорректный формат токена"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Некорректный формат заголовка Authorization"})
 			c.Abort()
 			return
 		}
+
 		tokenStr := parts[1]
-		userID, err := extractUserIDFromToken(tokenStr) // Используем нашу функцию парсинга
+		userID, err := extractUserIDFromToken(tokenStr)
 		if err != nil {
-			// Ошибки парсинга, просрочки, неверной подписи
-			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Невалидный токен: %v", err.Error())})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()}) // Используем ошибку из extractUserIDFromToken
 			c.Abort()
 			return
 		}
-		// Кладем ID пользователя в контекст для последующих хендлеров
+
+		// Сохраняем ID пользователя в контексте Gin для использования в следующих обработчиках
 		c.Set("userID", userID)
-		c.Next() // Передаем управление следующему хендлеру
+		c.Next()
 	}
 
-	// Эндпоинт для получения данных текущего пользователя (требует аутентификации)
+	/* ---------- Профиль текущего пользователя ---------- */
 	r.GET("/me", authRequired, func(c *gin.Context) {
-		// userID мы получили из контекста благодаря middleware authRequired
-		uid, exists := c.Get("userID")
+		userID, exists := c.Get("userID")
 		if !exists {
-			// Этого не должно случиться, если middleware отработало, но на всякий случай
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "userID не найден в контексте"})
-			return
-		}
-		userID, ok := uid.(int)
-		if !ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Неверный формат userID в контексте"})
+			// Этого не должно произойти, если authRequired отработал корректно
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось получить userID из контекста"})
 			return
 		}
 
+		// Используем userID для запроса данных пользователя
 		var u User
-		// Теперь этот запрос работает с ID из токена, а не из extractUserID, который сам делал ответ
-		err = db.QueryRow(
-			`SELECT id, full_name, email, phone, role, clinic_id, specialization
-				 FROM users WHERE id = $1`,
-			userID, // Используем ID из контекста
-		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID, &u.Specialization)
+		var specializationID sql.NullInt64    // Для сканирования nullable specialization_id
+		var specializationName sql.NullString // Для сканирования nullable specialization name из JOIN
+
+		// Обновленный запрос с LEFT JOIN для получения названия специализации
+		query := `
+            SELECT
+                u.id, u.full_name, u.email, u.phone, u.role, u.specialization_id,
+                s.name as specialization_name
+            FROM users u
+            LEFT JOIN specializations s ON u.specialization_id = s.id
+            WHERE u.id = $1`
+
+		err := db.QueryRow(query, userID.(int)).Scan(
+			&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role,
+			&specializationID,   // Сканируем в sql.NullInt64
+			&specializationName, // Сканируем в sql.NullString
+		)
+
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Пользователь не найден"})
 				return
 			}
-			log.Printf("Ошибка БД при получении профиля: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при получении профиля"})
+			log.Printf("Ошибка БД при получении профиля пользователя %d: %v", userID.(int), err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении профиля"})
 			return
 		}
+
+		// Преобразуем nullable типы в указатели для JSON
+		if specializationID.Valid {
+			id := int(specializationID.Int64)
+			u.SpecializationID = &id
+		}
+		if specializationName.Valid {
+			name := specializationName.String
+			u.SpecializationName = &name
+		}
+
 		c.JSON(http.StatusOK, u)
 	})
 
-	// Эндпоинт для получения пользователя по ID (для внутреннего использования Gateway)
-	// Этот эндпоинт НЕ должен требовать токена, но должен быть доступен только внутри сети Docker.
-	// В реальной системе тут должна быть какая-то другая форма аутентификации для сервисов (например, API Key).
-	// Для простоты, оставим его без аутентификации, но помним, что это потенциальная уязвимость,
-	// если сервис будет доступен извне сети.
+	/* ---------- Получение пользователя по ID (для внутренних нужд Gateway) ---------- */
 	r.GET("/users/:id", func(c *gin.Context) {
+		// Важно: Этот эндпоинт не должен требовать токена пользователя,
+		// так как его вызывает Gateway. Нужна защита на уровне сети или другим способом.
 		userIDStr := c.Param("id")
-		userID, err := strconv.Atoi(userIDStr)
+		targetUserID, err := strconv.Atoi(userIDStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат ID пользователя"})
 			return
 		}
 
 		var u User
-		err = db.QueryRow(
-			`SELECT id, full_name, email, phone, role, clinic_id, specialization
-				 FROM users WHERE id = $1`,
-			userID,
-		).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &u.ClinicID, &u.Specialization)
+		var specializationID sql.NullInt64
+		var specializationName sql.NullString
+
+		// Обновленный запрос с LEFT JOIN
+		query := `
+            SELECT
+                u.id, u.full_name, u.email, u.phone, u.role, u.specialization_id,
+                s.name as specialization_name
+            FROM users u
+            LEFT JOIN specializations s ON u.specialization_id = s.id
+            WHERE u.id = $1`
+
+		err = db.QueryRow(query, targetUserID).Scan(
+			&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role,
+			&specializationID,
+			&specializationName,
+		)
+
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Пользователь не найден"})
 				return
 			}
-			log.Printf("Ошибка БД при получении пользователя по ID: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при получении данных пользователя"})
+			log.Printf("Ошибка БД при получении пользователя по ID %d: %v", targetUserID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении данных пользователя"})
 			return
 		}
-		// Возвращаем всю информацию, включая роль. Gateway возьмет то, что ему нужно.
+
+		// Преобразуем nullable типы в указатели для JSON
+		if specializationID.Valid {
+			id := int(specializationID.Int64)
+			u.SpecializationID = &id
+		}
+		if specializationName.Valid {
+			name := specializationName.String
+			u.SpecializationName = &name
+		}
+
+		// Возвращаем все данные пользователя, включая роль и специализацию
 		c.JSON(http.StatusOK, u)
 	})
 
-	/* -- остальные эндпоинты (пациенты, врачи, админ и т.д.) без изменений -- */
-
-	if err := r.Run(":8080"); err != nil {
-		log.Fatal("Ошибка запуска users_service:", err)
+	/* -- Запуск сервера -- */
+	port := ":8080" // Порт по умолчанию для сервиса пользователей
+	log.Printf("Users service запущен на порту %s", port)
+	if err := r.Run(port); err != nil {
+		log.Fatalf("Ошибка запуска Users service: %v", err)
 	}
 }

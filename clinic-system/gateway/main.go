@@ -7,23 +7,22 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os" // Возможно, понадобится для SECRET
+	"os"
 	"strconv"
 	"strings"
-	"time" // Добавьте time для JWT
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5" // Добавьте библиотеку JWT
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // --- JWT Secret (должен совпадать с users service) ---
-// В идеале, вычитывается из переменной окружения или конфига
-var jwtSecret = []byte(os.Getenv("JWT_SECRET")) // Используем переменную окружения!
-// Если переменная не задана, используем дефолтное значение из users service для примера
+var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
+
 func init() {
 	if len(jwtSecret) == 0 {
-		log.Println("WARNING: JWT_SECRET environment variable not set, using default secret.")
-		jwtSecret = []byte("supersecret") // Дефолтное значение
+		log.Println("ПРЕДУПРЕЖДЕНИЕ (Gateway): Переменная окружения JWT_SECRET не установлена, используется значение по умолчанию 'supersecret'.")
+		jwtSecret = []byte("supersecret") // Значение по умолчанию
 	}
 }
 
@@ -31,296 +30,278 @@ func init() {
 func extractUserIDFromToken(tokenStr string) (int, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return 0, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
+			return nil, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
 		}
 		return jwtSecret, nil
 	})
 	if err != nil || !token.Valid {
+		// Ошибки парсинга, просроченные токены, неверные подписи
 		return 0, errors.New("некорректный или просроченный токен")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return 0, errors.New("неверный формат claims в токене")
 	}
-	raw, ok := claims["user_id"]
+	rawUserID, ok := claims["user_id"]
 	if !ok {
 		return 0, errors.New("user_id не найден в токене")
 	}
-	idFloat, ok := raw.(float64)
+	userIDFloat, ok := rawUserID.(float64)
 	if !ok {
 		return 0, errors.New("user_id в токене не является числом")
 	}
-
-	return int(idFloat), nil
+	return int(userIDFloat), nil
 }
 
-// --- Функция для получения данных пользователя (включая роль) из Users Service ---
-// Выполняет ВНУТРЕННИЙ HTTP запрос к users service
+// --- Структура пользователя (должна соответствовать ответу от Users Service /users/:id) ---
+// Обновлено: убран ClinicID, добавлены SpecializationID и SpecializationName
+type User struct {
+	ID                 int     `json:"id"`
+	FullName           string  `json:"full_name"`
+	Email              string  `json:"email"`
+	Phone              string  `json:"phone"`
+	Role               string  `json:"role"` // Это поле критично для Gateway
+	SpecializationID   *int    `json:"specialization_id,omitempty"`
+	SpecializationName *string `json:"specialization_name,omitempty"`
+	// ClinicID *int `json:"clinic_id"` // Убрано
+}
+
+// --- Функция для получения данных пользователя из Users Service ---
 func getUserDataFromUsersService(userID int) (*User, error) {
 	// URL Users Service (используем имя сервиса в Docker Compose)
-	usersServiceURL := fmt.Sprintf("http://users:8080/users/%d", userID) // Используем новый эндпоинт
+	usersServiceURL := fmt.Sprintf("http://users:8080/users/%d", userID)
 
+	// Создаем HTTP клиент с таймаутом
+	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", usersServiceURL, nil)
 	if err != nil {
-		log.Printf("Gateway: Error creating request to users service: %v", err)
-		return nil, fmt.Errorf("внутренняя ошибка при запросе к users service")
+		log.Printf("Gateway: Ошибка создания запроса к users service: %v", err)
+		return nil, fmt.Errorf("внутренняя ошибка шлюза")
 	}
 
-	// ВАЖНО: Здесь может потребоваться какая-то внутренняя аутентификация для сервисов,
-	// например, API Key в заголовке X-Internal-API-Key
-	// req.Header.Set("X-Internal-API-Key", os.Getenv("INTERNAL_API_KEY")) // Пример
+	// В реальной системе здесь могла бы быть аутентификация между сервисами (API Key и т.п.)
+	// req.Header.Set("X-Internal-API-Key", os.Getenv("INTERNAL_API_KEY"))
 
-	client := &http.Client{Timeout: 5 * time.Second} // Таймаут для запроса между сервисами
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Gateway: Error calling users service (%s): %v", usersServiceURL, err)
-		return nil, fmt.Errorf("users service недоступен или вернул ошибку")
+		log.Printf("Gateway: Ошибка вызова users service (%s): %v", usersServiceURL, err)
+		return nil, fmt.Errorf("сервис пользователей недоступен")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Если users service вернул не 200 OK (например, 404 Not Found)
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		log.Printf("Gateway: Users service returned status %d for user %d. Body: %s", resp.StatusCode, userID, string(bodyBytes))
-		return nil, fmt.Errorf("пользователь не найден или ошибка в users service (статус %d)", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body) // Читаем тело ответа для логгирования
+		log.Printf("Gateway: Users service вернул статус %d для user %d. Body: %s", resp.StatusCode, userID, string(bodyBytes))
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("пользователь с ID %d не найден в сервисе пользователей", userID)
+		}
+		return nil, fmt.Errorf("сервис пользователей вернул ошибку (статус %d)", resp.StatusCode)
 	}
 
-	var user User
+	var user User // Используем обновленную локальную структуру User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		log.Printf("Gateway: Error decoding user data from users service: %v", err)
-		return nil, fmt.Errorf("ошибка декодирования данных пользователя из users service")
+		log.Printf("Gateway: Ошибка декодирования данных пользователя из users service: %v", err)
+		return nil, fmt.Errorf("ошибка обработки ответа от сервиса пользователей")
+	}
+
+	// Проверяем, что получили ожидаемую роль (хотя бы не пустую)
+	if user.Role == "" {
+		log.Printf("Gateway: Получены неполные данные пользователя (отсутствует роль) для userID %d", userID)
+		return nil, fmt.Errorf("не удалось получить роль пользователя")
 	}
 
 	return &user, nil
 }
 
-// --- Структура пользователя, которую возвращает Users Service (нужна для декодирования) ---
-type User struct {
-	ID             int     `json:"id"`
-	FullName       string  `json:"full_name"`
-	Email          string  `json:"email"`
-	Phone          string  `json:"phone"`
-	Role           string  `json:"role"` // <-- Самое важное поле для Gateway
-	ClinicID       *int    `json:"clinic_id"`
-	Specialization *string `json:"specialization,omitempty"`
-}
-
-// --- Middleware для аутентификации и добавления заголовков X-User-ID, X-User-Role ---
+// --- Middleware для аутентификации и добавления заголовков ---
 func AuthAndHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Извлекаем токен из заголовка Authorization
-		auth := c.GetHeader("Authorization")
-		if auth == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует токен аутентификации"})
-			c.Abort() // Прерываем дальнейшую обработку
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует заголовок Authorization"})
+			c.Abort()
 			return
 		}
-		parts := strings.Fields(auth)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" { // Приводим к нижнему регистру для надежности
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Некорректный формат токена"})
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Некорректный формат заголовка Authorization"})
 			c.Abort()
 			return
 		}
 		tokenStr := parts[1]
 
-		// 2. Валидируем токен и извлекаем user_id
+		// Валидируем токен и извлекаем user_id
 		userID, err := extractUserIDFromToken(tokenStr)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Невалидный токен: %v", err.Error())})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
 			return
 		}
 
-		// 3. Получаем данные пользователя (включая роль) из Users Service
+		// Получаем данные пользователя (включая роль) из Users Service
 		user, err := getUserDataFromUsersService(userID)
 		if err != nil {
-			// Если не удалось получить данные пользователя, это либо ошибка в users service,
-			// либо пользователя с таким ID уже нет (удален).
-			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Не удалось получить данные пользователя: %v", err.Error())})
+			// Ошибка получения данных пользователя (возможно, удален или users service недоступен)
+			// Отвечаем 401, так как токен валиден, но пользователь не актуален или сервис недоступен
+			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Не удалось проверить пользователя: %v", err.Error())})
 			c.Abort()
 			return
 		}
 
-		// 4. Добавляем проверенные заголовки в запрос, который будет проксирован
-		// Удаляем исходный Authorization заголовок (опционально, но хорошая практика)
+		// Добавляем заголовки X-User-ID и X-User-Role в запрос для проксирования
+		// Удаляем исходный Authorization заголовок (хорошая практика)
 		c.Request.Header.Del("Authorization")
-		// Добавляем наши служебные заголовки
+		// Добавляем наши заголовки
 		c.Request.Header.Set("X-User-ID", strconv.Itoa(user.ID))
 		c.Request.Header.Set("X-User-Role", user.Role)
-		// Можем добавить и другие поля, если нужны в downstream сервисах, например X-User-Clinic-ID
+		// Можно добавить и другие данные при необходимости, например:
+		// if user.SpecializationID != nil {
+		// 	c.Request.Header.Set("X-User-Specialization-ID", strconv.Itoa(*user.SpecializationID))
+		// }
 
-		// 5. Продолжаем обработку запроса (проксирование)
-		c.Next()
+		c.Next() // Передаем управление дальше (проксированию)
 	}
 }
 
-// ---------------------------------------------------------------
-// proxy helper: почти без изменений, но теперь он проксирует
-// уже измененный c.Request (с добавленными заголовками)
-// ---------------------------------------------------------------
-func proxy(c *gin.Context, targetBase string) {
-	// собираем полный URL: targetBase + original.Path (или части path) + "?" + RawQuery
+// --- Хелпер для проксирования запросов ---
+func proxy(c *gin.Context, targetServiceBaseURL string) {
+	// targetServiceBaseURL - базовый URL сервиса (например, http://schedules:8082)
+	// Нужно добавить к нему запрошенный путь и параметры
 
-	// Исправляем логику proxy: targetBase уже должен содержать базовый путь микросервиса
-	// А к нему нужно добавить *path часть из маршрута Gateway
-	// Например: targetBase = "http://schedules:8082/schedules"
-	// В маршруте Gateway: /api/schedules/*proxyPath
-	// originalPath = c.Request.URL.Path (например, /api/schedules/my)
-	// proxyPathParam = c.Param("proxyPath") (например, /my)
+	// Формируем URL целевого сервиса
+	// c.Request.URL.Path содержит полный путь из запроса к шлюзу (например, /api/schedules/my)
+	// Нам нужно отбросить префикс /api и добавить оставшуюся часть к targetServiceBaseURL
+	// Используем *path параметр из маршрута Gin для универсальности
 
-	targetURL := targetBase           // Базовый URL целевого сервиса с его базовым путем
-	proxyPathParam := c.Param("path") // Получаем *path часть из маршрута Gateway
+	targetPath := c.Param("path") // Получаем часть пути после базового маршрута группы
+	finalURL := targetServiceBaseURL + targetPath
 
-	// Убедимся, что targetURL заканчивается на слеш, а proxyPathParam начинается без слеша,
-	// чтобы правильно их объединить. Или просто объединяем как есть, если уверены в форматах.
-	// Простой вариант:
-	finalURL := targetURL + proxyPathParam // Добавляем *path параметр из Gateway маршрута
-
-	// Добавляем query string
 	if c.Request.URL.RawQuery != "" {
 		finalURL += "?" + c.Request.URL.RawQuery
 	}
 
-	req, err := http.NewRequest(c.Request.Method, finalURL, c.Request.Body)
+	// Создаем новый запрос к целевому сервису
+	proxyReq, err := http.NewRequest(c.Request.Method, finalURL, c.Request.Body)
 	if err != nil {
-		log.Printf("Gateway: Proxy request creation error for %s: %v", finalURL, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка создания прокси-запроса"})
+		log.Printf("Gateway: Ошибка создания прокси-запроса для %s: %v", finalURL, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка шлюза при создании запроса"})
 		return
 	}
 
-	// Теперь req.Header уже содержит заголовки, добавленные AuthAndHeadersMiddleware (если оно выполнялось)
-	// Копируем все заголовки из входящего запроса Gin в новый исходящий запрос
-	req.Header = c.Request.Header
+	// Копируем заголовки из оригинального запроса (уже модифицированные middleware)
+	proxyReq.Header = c.Request.Header
+	// Убедимся, что заголовок Host правильный (либо удаляем, либо ставим нужный)
+	proxyReq.Header.Del("Host") // Часто лучше удалить, чтобы http.Client подставил правильный
 
-	client := &http.Client{} // Используем дефолтный клиент (или настроенный с таймаутами)
-	resp, err := client.Do(req)
+	// Выполняем запрос
+	client := &http.Client{Timeout: 10 * time.Second} // Таймаут для запроса к другому сервису
+	resp, err := client.Do(proxyReq)
 	if err != nil {
-		log.Printf("Gateway: Upstream service error (%s): %v", finalURL, err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "целевой сервис недоступен"})
+		log.Printf("Gateway: Ошибка при вызове целевого сервиса (%s): %v", finalURL, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Целевой сервис недоступен или вернул ошибку"})
 		return
 	}
 	defer resp.Body.Close()
 
-	// Прокидываем статус и заголовки из ответа целевого сервиса клиенту
+	// Копируем статус-код ответа от целевого сервиса клиенту
 	c.Status(resp.StatusCode)
-	for k, v := range resp.Header {
-		for _, vv := range v {
-			c.Writer.Header().Add(k, vv)
+
+	// Копируем заголовки ответа от целевого сервиса клиенту
+	for key, values := range resp.Header {
+		for _, value := range values {
+			// Некоторые заголовки (например, Content-Length) могут быть установлены автоматически io.Copy
+			// Пропускаем их или обрабатываем по необходимости
+			if key == "Content-Length" { // Gin установит Content-Length сам
+				continue
+			}
+			c.Writer.Header().Add(key, value)
 		}
 	}
-	// Прокидываем тело ответа
+
+	// Копируем тело ответа от целевого сервиса клиенту
 	_, err = io.Copy(c.Writer, resp.Body)
 	if err != nil {
-		log.Printf("Gateway: Error copying response body for %s: %v", finalURL, err)
-		// В зависимости от политики, можно вернуть 500 или просто завершить соединение
+		log.Printf("Gateway: Ошибка копирования тела ответа для %s: %v", finalURL, err)
+		// Соединение может быть уже закрыто, просто логгируем
 	}
 }
 
 func main() {
 	r := gin.Default()
 
-	// --- Группа маршрутов, требующих аутентификации ---
-	authenticatedRoutes := r.Group("/api")
-	{
-		// Применяем наше middleware ко всем маршрутам в этой группе
-		authenticatedRoutes.Use(AuthAndHeadersMiddleware())
+	// --- Публичные маршруты Users service (не требуют токена) ---
+	// Проксируются напрямую без AuthAndHeadersMiddleware
+	r.POST("/api/register", func(c *gin.Context) { proxy(c, "http://users:8080/register") }) // Путь к users service может быть просто /register
+	r.POST("/api/login", func(c *gin.Context) { proxy(c, "http://users:8080/login") })       // и /login
 
-		// ---------- USERS SERVICE (Запросы, требующие токена, вроде /me) -------------
-		// Важно: запросы к Users service для получения роли (GET /users/:id)
-		// НЕ ДОЛЖНЫ проходить через этот middleware, иначе будет рекурсия.
-		// Эндпоинты вроде /login, /register тоже не требуют токена.
-		// Эндпоинт /me требует токена.
-		// Нужно явно указать, какие маршруты User Service требуют токена и проксировать их,
-		// применяя middleware ТОЛЬКО к проксируемым маршрутам ДРУГИХ сервисов.
-
-		// Давайте уберем AuthAndHeadersMiddleware из группы /api
-		// и применим его индивидуально к маршрутам, которые должны быть защищены.
-
-		// ---------- CLINICS SERVICE ----------- (Требует аутентификации? Если да, добавить AuthAndHeadersMiddleware)
-		// Например, просмотр клиник может быть публичным, а добавление/редактирование - для админов клиники.
-		// Пока проксируем без аутентификации, если не указано иное.
-		r.Any("/api/clinics", func(c *gin.Context) {
-			proxy(c, "http://clinics:8087/clinics") // clinic service слушает на /clinics
-		})
-		r.Any("/api/clinics/*path", func(c *gin.Context) {
-			proxy(c, "http://clinics:8087/clinics") // clinic service слушает на /clinics
-		})
-
-		// ---------- SCHEDULES ----------------- (Требует аутентификации для всех операций кроме, возможно, публичного просмотра)
-		// Операции добавления/получения/изменения/удаления слотов требуют аутентификации (и авторизации по роли в schedules service)
-		schedulesRoutes := r.Group("/api/schedules")
-		{
-			schedulesRoutes.Use(AuthAndHeadersMiddleware()) // Применяем middleware сюда
-
-			// POST /api/schedules -> проксируется на POST http://schedules:8082/schedules
-			// GET /api/schedules/my -> проксируется на GET http://schedules:8082/schedules/my
-			// PATCH /api/schedules/:id -> проксируется на PATCH http://schedules:8082/schedules/:id
-			// DELETE /api/schedules/:id -> проксируется на DELETE http://schedules:8082/schedules/:id
-			schedulesRoutes.Any("/*path", func(c *gin.Context) { // *path покроет "/", "/my", "/:id" и т.д.
-				proxy(c, "http://schedules:8082/schedules") // schedules service слушает на /schedules
-			})
-		}
-
-		// ---------- APPOINTMENTS -------------- (Требует аутентификации)
-		appointmentsRoutes := r.Group("/api/appointments")
-		{
-			appointmentsRoutes.Use(AuthAndHeadersMiddleware()) // Применяем middleware сюда
-			appointmentsRoutes.Any("/*path", func(c *gin.Context) {
-				proxy(c, "http://appointments:8083/appointments") // Например, appointments service слушает на /appointments
-			})
-		}
-
-		// ---------- MEDICAL RECORDS ----------- (Требует аутентификации)
-		medicalRecordsRoutes := r.Group("/api/medical_records")
-		{
-			medicalRecordsRoutes.Use(AuthAndHeadersMiddleware()) // Применяем middleware сюда
-			medicalRecordsRoutes.Any("/*path", func(c *gin.Context) {
-				proxy(c, "http://medical_records:8084/medical_records") // Например, medical_records service слушает на /medical_records
-			})
-		}
-
-		// ---------- PAYMENTS ------------------ (Требует аутентификации)
-		paymentsRoutes := r.Group("/api/payments")
-		{
-			paymentsRoutes.Use(AuthAndHeadersMiddleware()) // Применяем middleware сюда
-			paymentsRoutes.Any("/*path", func(c *gin.Context) {
-				proxy(c, "http://payments:8085/payments") // Например, payments service слушает на /payments
-			})
-		}
-
-		// ---------- NOTIFICATIONS ------------- (Требует аутентификации)
-		notificationsRoutes := r.Group("/api/notifications")
-		{
-			notificationsRoutes.Use(AuthAndHeadersMiddleware()) // Применяем middleware сюда
-			notificationsRoutes.Any("/*path", func(c *gin.Context) {
-				proxy(c, "http://notifications:8086/notifications") // Например, notifications service слушает на /notifications
-			})
+	// --- Маршрут /me Users service (требует токена, который проверяет сам users service) ---
+	// Токен передается "как есть", users service сам его проверит. Middleware шлюза здесь НЕ нужно.
+	// Создаем прокси-функцию, которая просто передает запрос дальше
+	usersProxyHandler := func(targetPath string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			// Важно: передаем путь как есть, без /api префикса
+			c.Params = append(c.Params, gin.Param{Key: "path", Value: targetPath}) // Устанавливаем *path параметр для proxy функции
+			proxy(c, "http://users:8080")                                          // Проксируем на базовый URL users service
 		}
 	}
+	r.GET("/api/me", usersProxyHandler("/me")) // Маршрут /me
 
-	// ---------- USERS SERVICE (публичные и защищенные) -------------
-	// Маршруты Users service, которые НЕ требуют AuthAndHeadersMiddleware здесь,
-	// потому что они либо публичные (/register, /login), либо сам сервис их аутентифицирует (/me).
-	// Запрос к /me содержит токен, users service сам его проверит.
-	// Запрос Gateway к users service на /users/:id тоже идет сюда, и он не должен быть защищен токеном клиента.
+	// --- Группы маршрутов, требующих аутентификации на уровне шлюза ---
+	// Применяем AuthAndHeadersMiddleware к этим группам
 
-	// Публичные маршруты users service
-	r.POST("/api/register", func(c *gin.Context) { proxy(c, "http://users:8080") }) // users service слушает на /register
-	r.POST("/api/login", func(c *gin.Context) { proxy(c, "http://users:8080") })    // users service слушает на /login
+	// ---------- SCHEDULES SERVICE -----------
+	schedulesRoutes := r.Group("/api/schedules")
+	schedulesRoutes.Use(AuthAndHeadersMiddleware()) // Защищаем все маршруты расписаний
+	{
+		// Проксируем все запросы вида /api/schedules/* на http://schedules:8082/*
+		schedulesRoutes.Any("/*path", func(c *gin.Context) {
+			proxy(c, "http://schedules:8082") // Базовый URL schedules service
+		})
+	}
 
-	// Маршрут /me users service (требует токена, который проверяет сам users service)
-	r.GET("/api/me", func(c *gin.Context) { proxy(c, "http://users:8080") }) // users service слушает на /me
+	// ---------- APPOINTMENTS SERVICE --------------
+	appointmentsRoutes := r.Group("/api/appointments")
+	appointmentsRoutes.Use(AuthAndHeadersMiddleware()) // Защищаем
+	{
+		appointmentsRoutes.Any("/*path", func(c *gin.Context) {
+			proxy(c, "http://appointments:8083") // Базовый URL appointments service
+		})
+	}
 
-	// !!! Важно: Маршрут Users Service /users/:id, используемый Gateway для получения роли,
-	// не должен быть доступен извне Gateway и не должен требовать токена клиента.
-	// Если вы хотите проксировать этот маршрут через Gateway (например, для отладки),
-	// убедитесь, что он не защищен AuthAndHeadersMiddleware.
-	// Если он нужен только Gateway, то Gateway должен обращаться к нему напрямую
-	// по внутреннему адресу (http://users:8080/users/:id), минуя собственные маршруты Gateway.
-	// Моя функция getUserDataFromUsersService делает именно это.
+	// ---------- MEDICAL RECORDS SERVICE -----------
+	medicalRecordsRoutes := r.Group("/api/medical_records")
+	medicalRecordsRoutes.Use(AuthAndHeadersMiddleware()) // Защищаем
+	{
+		medicalRecordsRoutes.Any("/*path", func(c *gin.Context) {
+			proxy(c, "http://medical_records:8084") // Базовый URL medical_records service
+		})
+	}
 
-	log.Println("API-gateway listening on :8000")
-	if err := r.Run(":8000"); err != nil {
-		log.Fatalf("gateway start error: %v", err)
+	// ---------- PAYMENTS SERVICE ------------------
+	paymentsRoutes := r.Group("/api/payments")
+	paymentsRoutes.Use(AuthAndHeadersMiddleware()) // Защищаем
+	{
+		paymentsRoutes.Any("/*path", func(c *gin.Context) {
+			proxy(c, "http://payments:8085") // Базовый URL payments service
+		})
+	}
+
+	// ---------- NOTIFICATIONS SERVICE -------------
+	notificationsRoutes := r.Group("/api/notifications")
+	notificationsRoutes.Use(AuthAndHeadersMiddleware()) // Защищаем
+	{
+		notificationsRoutes.Any("/*path", func(c *gin.Context) {
+			proxy(c, "http://notifications:8086") // Базовый URL notifications service
+		})
+	}
+
+	// ---------- CLINICS SERVICE (УДАЛЕНО) ----------
+	// Маршруты для /api/clinics удалены, так как сервис clinics убран
+
+	// --- Запуск шлюза ---
+	port := ":8000" // Порт шлюза
+	log.Printf("API Gateway запущен на порту %s", port)
+	if err := r.Run(port); err != nil {
+		log.Fatalf("Ошибка запуска API Gateway: %v", err)
 	}
 }
