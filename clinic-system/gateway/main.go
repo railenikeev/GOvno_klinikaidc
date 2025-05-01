@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-contrib/cors" // <-- Импортируем CORS middleware
+	"github.com/gin-contrib/cors" // Импорт CORS middleware
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -29,7 +29,6 @@ func init() {
 
 // --- Функция извлечения ID пользователя ---
 func extractUserIDFromToken(tokenStr string) (int, error) {
-	// ... (код без изменений) ...
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
@@ -56,7 +55,6 @@ func extractUserIDFromToken(tokenStr string) (int, error) {
 
 // --- Структура пользователя ---
 type User struct {
-	// ... (код без изменений, как в прошлый раз) ...
 	ID                 int     `json:"id"`
 	FullName           string  `json:"full_name"`
 	Email              string  `json:"email"`
@@ -68,7 +66,6 @@ type User struct {
 
 // --- Функция получения данных пользователя ---
 func getUserDataFromUsersService(userID int) (*User, error) {
-	// ... (код без изменений) ...
 	usersServiceURL := fmt.Sprintf("http://users:8080/users/%d", userID)
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", usersServiceURL, nil)
@@ -82,7 +79,6 @@ func getUserDataFromUsersService(userID int) (*User, error) {
 		return nil, fmt.Errorf("сервис пользователей недоступен")
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		log.Printf("Gateway: Users service вернул статус %d для user %d. Body: %s", resp.StatusCode, userID, string(bodyBytes))
@@ -91,7 +87,6 @@ func getUserDataFromUsersService(userID int) (*User, error) {
 		}
 		return nil, fmt.Errorf("сервис пользователей вернул ошибку (статус %d)", resp.StatusCode)
 	}
-
 	var user User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		log.Printf("Gateway: Ошибка декодирования данных пользователя из users service: %v", err)
@@ -106,7 +101,6 @@ func getUserDataFromUsersService(userID int) (*User, error) {
 
 // --- Middleware аутентификации ---
 func AuthAndHeadersMiddleware() gin.HandlerFunc {
-	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -120,8 +114,7 @@ func AuthAndHeadersMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		tokenStr := parts[1]
-		userID, err := extractUserIDFromToken(tokenStr)
+		userID, err := extractUserIDFromToken(parts[1])
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
@@ -142,8 +135,21 @@ func AuthAndHeadersMiddleware() gin.HandlerFunc {
 
 // --- Хелпер проксирования ---
 func proxy(c *gin.Context, targetServiceBaseURL string) {
-	// ... (код без изменений) ...
-	targetPath := c.Param("path")
+	targetPath := c.Param("path") // Предполагаем, что путь всегда передается через *path
+	// Если path пустой (например, для /api/login), используем оригинальный путь запроса к шлюзу
+	if targetPath == "" {
+		// Удаляем префикс /api (если он есть)
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			// /api/login -> /login
+			// /api/users -> /users
+			// /api/specializations -> /specializations
+			targetPath = strings.TrimPrefix(c.Request.URL.Path, "/api")
+		} else {
+			// Если префикса нет, используем как есть (маловероятно в текущей структуре)
+			targetPath = c.Request.URL.Path
+		}
+	}
+
 	finalURL := targetServiceBaseURL + targetPath
 	if c.Request.URL.RawQuery != "" {
 		finalURL += "?" + c.Request.URL.RawQuery
@@ -182,49 +188,49 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 func main() {
 	r := gin.Default()
 
-	// --- Настройка CORS ---
-	// Для разработки разрешаем запросы с адреса Vite dev server (обычно 5173)
-	// В продакшене нужно указать конкретный домен вашего фронтенда
+	// Настройка CORS
 	corsConfig := cors.Config{
-		// AllowOrigins: []string{"http://localhost:5173", "http://127.0.0.1:5173"}, // Укажите порт вашего Vite dev сервера
-		AllowOrigins:     []string{"*"}, // Либо разрешаем все для простоты разработки (менее безопасно)
+		AllowOrigins:     []string{"*"}, // Разрешаем все для разработки
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,           // Разрешаем передачу cookies/auth headers
-		MaxAge:           12 * time.Hour, // Как долго браузер может кэшировать preflight ответ
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
 	}
-	r.Use(cors.New(corsConfig)) // <-- Применяем CORS middleware
+	r.Use(cors.New(corsConfig))
 
 	// --- Маршруты ---
 
-	// Публичные маршруты Users service
-	r.POST("/api/register", func(c *gin.Context) { proxy(c, "http://users:8080/register") })
-	r.POST("/api/login", func(c *gin.Context) { proxy(c, "http://users:8080/login") })
-
-	// Маршрут /me Users service (проверяет токен сам)
-	usersProxyHandler := func(targetPath string) gin.HandlerFunc {
+	// Хелпер для проксирования на Users Service
+	// Передаем базовый URL users service и путь внутри него
+	usersProxyHandler := func(targetServicePath string) gin.HandlerFunc {
 		return func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{Key: "path", Value: targetPath})
-			proxy(c, "http://users:8080")
+			// Передаем только путь ВНУТРИ сервиса users
+			c.Params = append(c.Params, gin.Param{Key: "path", Value: targetServicePath})
+			proxy(c, "http://users:8080") // Базовый URL users service
 		}
 	}
+
+	// Публичные маршруты Users service
+	r.POST("/api/register", usersProxyHandler("/register"))
+	r.POST("/api/login", usersProxyHandler("/login"))
+	r.GET("/api/users", usersProxyHandler("/users"))                     // Для ?role=doctor
+	r.GET("/api/specializations", usersProxyHandler("/specializations")) // Новый маршрут
+
+	// Маршрут /me Users service (проверяет токен сам)
 	r.GET("/api/me", usersProxyHandler("/me"))
 
 	// Защищенные группы (требуют токена, проверенного шлюзом)
 	authGroup := r.Group("/api")
 	authGroup.Use(AuthAndHeadersMiddleware())
 	{
-		// Schedules
+		// Используем .Any для всех методов HTTP
+		// Передаем базовый URL целевого сервиса
 		authGroup.Any("/schedules/*path", func(c *gin.Context) { proxy(c, "http://schedules:8082") })
-		// Appointments
 		authGroup.Any("/appointments/*path", func(c *gin.Context) { proxy(c, "http://appointments:8083") })
-		// Medical Records
 		authGroup.Any("/medical_records/*path", func(c *gin.Context) { proxy(c, "http://medical_records:8084") })
-		// Payments
 		authGroup.Any("/payments/*path", func(c *gin.Context) { proxy(c, "http://payments:8085") })
-		// Notifications
-		authGroup.Any("/notify/*path", func(c *gin.Context) { proxy(c, "http://notifications:8086") }) // Маршрут /notify
+		authGroup.Any("/notify/*path", func(c *gin.Context) { proxy(c, "http://notifications:8086") })
 	}
 
 	// --- Запуск шлюза ---

@@ -1,35 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO, isFuture } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import axios from 'axios'; // Оставили для isAxiosError
 
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-// Удалили CardHeader, CardTitle
-import { Card, CardContent } from '@/components/ui/card';
-// Удалили TableCaption
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent } from '@/components/ui/card'; // Убрали CardHeader, CardTitle
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"; // Убрали TableCaption
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Toaster, toast } from "sonner";
 
+// Тип для записей (из ответа GET /appointments/my/patient)
 interface Appointment {
     id: number;
     patient_id?: number;
     doctor_id?: number;
     doctor_name?: string;
     specialization_name?: string;
-    date?: string; // YYYY-MM-DD
-    start_time?: string; // HH:MM
-    end_time?: string; // HH:MM
+    date?: string; // Формат YYYY-MM-DD
+    start_time?: string; // Формат HH:MM
+    end_time?: string; // Формат HH:MM
     status: string;
     created_at: string;
     doctor_schedule_id: number;
 }
 
+// Функция для определения варианта Badge по статусу
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
-    switch (status.toLowerCase()) {
+    switch (status?.toLowerCase()) {
         case 'completed': return 'default';
         case 'scheduled': return 'secondary';
         case 'cancelled': return 'destructive';
@@ -43,9 +44,10 @@ const MyAppointmentsPage: React.FC = () => {
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [cancellingId, setCancellingId] = useState<number | null>(null);
+    const [cancellingId, setCancellingId] = useState<number | null>(null); // ID записи, которую отменяем
 
-    const fetchAppointments = async () => {
+    // Функция загрузки записей
+    const fetchAppointments = useCallback(async () => {
         setIsLoading(true);
         setError(null);
         try {
@@ -58,7 +60,7 @@ const MyAppointmentsPage: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []); // useCallback
 
     useEffect(() => {
         if (user && user.role === 'patient') {
@@ -70,31 +72,46 @@ const MyAppointmentsPage: React.FC = () => {
             setError("Доступ запрещен для вашей роли");
             setIsLoading(false);
         }
-    }, [user]);
+    }, [user, fetchAppointments]);
 
+    // Функция отмены записи (теперь с реальным API вызовом)
     const handleCancelAppointment = async (appointmentId: number) => {
         setCancellingId(appointmentId);
+        let errorMessage = "Не удалось отменить запись."; // Сообщение по умолчанию
+
         try {
-            // !!! ВАЖНО: Реализовать DELETE /appointments/:id на бэкенде !!!
-            // const response = await apiClient.delete(`/appointments/${appointmentId}`);
+            // --- Вызов API для отмены/удаления ---
+            const response = await apiClient.delete(`/appointments/${appointmentId}`);
+            // Ожидаем статус 204 No Content при успехе
 
-            // --- Имитация Успеха ---
-            console.log(`Имитация отмены записи с ID: ${appointmentId}`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            // Удалили строку: if (Math.random() < 0.1) throw new Error("Имитация ошибки сети");
-            // --- Конец Имитации ---
-
-            toast.success("Запись успешно отменена!");
-            fetchAppointments().catch(console.error); // Перезагружаем список
+            if (response.status === 204) {
+                toast.success("Запись успешно отменена!");
+                await fetchAppointments(); // Обновляем список записей после успешной отмены
+                // Выходим, чтобы не показать ошибку
+                setCancellingId(null);
+                return;
+            } else {
+                // Неожиданный успешный статус (не 204)
+                console.warn("Неожиданный статус ответа при отмене записи:", response);
+                errorMessage = `Неожиданный ответ сервера: ${response.status}`;
+            }
 
         } catch (error) {
             console.error("Ошибка отмены записи:", error);
-            toast.error("Не удалось отменить запись. Попробуйте снова.");
+            if (axios.isAxiosError(error) && error.response) {
+                // Обрабатываем ошибки от бэкенда (403, 404, 409, 500...)
+                errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
+            } else if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            // Показываем ошибку
+            toast.error(errorMessage);
         } finally {
-            setCancellingId(null);
+            setCancellingId(null); // Убираем лоадер в любом случае
         }
     };
 
+    // --- Рендеринг ---
     if (isLoading) {
         return <div className="container mx-auto p-4">Загрузка записей...</div>;
     }
@@ -126,6 +143,7 @@ const MyAppointmentsPage: React.FC = () => {
                             </TableHeader>
                             <TableBody>
                                 {appointments.map((appointment) => {
+                                    // Проверяем, можно ли отменить запись (статус scheduled и дата в будущем)
                                     const canCancel = appointment.status === 'scheduled' && appointment.date && isFuture(parseISO(appointment.date));
                                     const isCancelling = cancellingId === appointment.id;
 
@@ -157,13 +175,14 @@ const MyAppointmentsPage: React.FC = () => {
                                                             </AlertDialogHeader>
                                                             <AlertDialogFooter>
                                                                 <AlertDialogCancel>Нет</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={() => handleCancelAppointment(appointment.id)}>
+                                                                <AlertDialogAction onClick={() => handleCancelAppointment(appointment.id)} disabled={isCancelling}>
                                                                     Да, отменить
                                                                 </AlertDialogAction>
                                                             </AlertDialogFooter>
                                                         </AlertDialogContent>
                                                     </AlertDialog>
                                                 ) : (
+                                                    // Показываем тире для записей, которые нельзя отменить
                                                     <span className="text-xs text-muted-foreground">-</span>
                                                 )}
                                             </TableCell>
