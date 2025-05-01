@@ -19,6 +19,7 @@ type CreateAppointmentRequest struct {
 	DoctorScheduleID int `json:"doctor_schedule_id" binding:"required"`
 }
 
+// Эта структура подходит и для админа, т.к. содержит все нужные поля
 type AppointmentResponse struct {
 	ID                 int       `json:"id"`
 	PatientID          int       `json:"patient_id"`
@@ -38,7 +39,7 @@ type UpdateAppointmentStatusRequest struct {
 	Status string `json:"status" binding:"required,oneof=scheduled completed cancelled"`
 }
 
-// --- Хелпер для получения ID и роли ---
+// --- Хелперы ---
 func getUserInfo(c *gin.Context) (userID int, userRole string, err error) {
 	idStr := c.GetHeader("X-User-ID")
 	role := c.GetHeader("X-User-Role")
@@ -55,10 +56,30 @@ func getUserInfo(c *gin.Context) (userID int, userRole string, err error) {
 	return
 }
 
+// Middleware для проверки роли Администратора
+func adminRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		_, role, err := getUserInfo(c)
+		if err != nil {
+			log.Printf("ADMIN AUTH ERROR (Appointments): %v", err)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ошибка аутентификации"})
+			c.Abort()
+			return
+		}
+		if role != "admin" {
+			log.Printf("ADMIN AUTH WARN (Appointments): Попытка доступа ролью '%s'", role)
+			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("Переменная окружения DATABASE_URL не задана")
+		log.Fatal("DATABASE_URL не задана")
 	}
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -71,13 +92,20 @@ func main() {
 	log.Println("Успешное подключение к БД (Appointments service)!")
 
 	r := gin.Default()
+
+	// Создаем группу /appointments
 	apptRoutes := r.Group("/appointments")
 	{
+		// Эндпоинты для пациентов и врачей (требуют аутентификации, но роль проверяется в хендлере)
 		apptRoutes.POST("", createAppointmentHandler(db))
 		apptRoutes.GET("/my/patient", getMyAppointmentsPatientHandler(db))
-		apptRoutes.GET("/my/doctor", getMyAppointmentsDoctorHandler(db)) // Переименовали старый /my
-		apptRoutes.PATCH("/:id/status", updateAppointmentStatusHandler(db))
-		apptRoutes.DELETE("/:id", cancelAppointmentHandler(db)) // <-- Новый маршрут
+		apptRoutes.GET("/my/doctor", getMyAppointmentsDoctorHandler(db))
+		apptRoutes.PATCH("/:id/status", updateAppointmentStatusHandler(db)) // Права проверяются внутри
+		apptRoutes.DELETE("/:id", cancelAppointmentHandler(db))             // Права проверяются внутри
+
+		// НОВЫЙ Эндпоинт для админа (защищаем middleware)
+		// GET /appointments
+		apptRoutes.GET("", adminRequired(), getAllAppointmentsHandler(db)) // Добавляем adminRequired middleware
 	}
 
 	port := ":8083"
@@ -91,6 +119,7 @@ func main() {
 
 // POST /appointments
 func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
+	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		patientID, userRole, err := getUserInfo(c)
 		if err != nil {
@@ -106,11 +135,10 @@ func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
 		}
-
 		tx, err := db.Begin()
 		if err != nil {
 			log.Printf("Appointments ERROR: Не удалось начать транзакцию: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при начале транзакции"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		defer func() {
@@ -121,7 +149,6 @@ func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 				tx.Rollback()
 			}
 		}()
-
 		updateSlotQuery := `UPDATE doctor_schedules SET is_available = false WHERE id = $1 AND is_available = true RETURNING id`
 		var updatedSlotID int
 		err = tx.QueryRow(updateSlotQuery, req.DoctorScheduleID).Scan(&updatedSlotID)
@@ -132,11 +159,10 @@ func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 			log.Printf("Appointments ERROR: Ошибка при обновлении слота %d: %v", req.DoctorScheduleID, err)
-			err = errors.New("ошибка сервера при бронировании слота")
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		insertApptQuery := `INSERT INTO appointments (patient_id, doctor_schedule_id, status) VALUES ($1, $2, $3) RETURNING id, created_at, status`
 		var createdAppt AppointmentResponse
 		createdAppt.PatientID = patientID
@@ -144,15 +170,14 @@ func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 		err = tx.QueryRow(insertApptQuery, patientID, req.DoctorScheduleID, "scheduled").Scan(&createdAppt.ID, &createdAppt.CreatedAt, &createdAppt.Status)
 		if err != nil {
 			log.Printf("Appointments ERROR: Ошибка при создании записи для слота %d: %v", req.DoctorScheduleID, err)
-			err = errors.New("ошибка сервера при создании записи")
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		err = tx.Commit()
 		if err != nil {
 			log.Printf("Appointments ERROR: Не удалось подтвердить транзакцию для слота %d: %v", req.DoctorScheduleID, err)
-			err = errors.New("ошибка сервера при подтверждении записи")
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -162,6 +187,7 @@ func createAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 
 // GET /appointments/my/patient
 func getMyAppointmentsPatientHandler(db *sql.DB) gin.HandlerFunc {
+	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		patientID, userRole, err := getUserInfo(c)
 		if err != nil {
@@ -172,15 +198,11 @@ func getMyAppointmentsPatientHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен"})
 			return
 		}
-		query := ` SELECT a.id, a.patient_id, a.doctor_schedule_id, a.status, a.created_at, ds.date, ds.start_time, ds.end_time,
-					doc.id as doctor_id, doc.full_name as doctor_name, spec.name as specialization_name
-					FROM appointments a JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id
-					JOIN users doc ON ds.doctor_id = doc.id LEFT JOIN specializations spec ON doc.specialization_id = spec.id
-					WHERE a.patient_id = $1 ORDER BY ds.date DESC, ds.start_time DESC`
+		query := ` SELECT a.id, a.patient_id, a.doctor_schedule_id, a.status, a.created_at, ds.date, ds.start_time, ds.end_time, doc.id as doctor_id, doc.full_name as doctor_name, spec.name as specialization_name FROM appointments a JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id JOIN users doc ON ds.doctor_id = doc.id LEFT JOIN specializations spec ON doc.specialization_id = spec.id WHERE a.patient_id = $1 ORDER BY ds.date DESC, ds.start_time DESC`
 		rows, err := db.Query(query, patientID)
 		if err != nil {
-			log.Printf("Appointments ERROR: Ошибка БД при получении записей пациента %d: %v", patientID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении записей"})
+			log.Printf("Appointments ERROR: Ошибка БД (getMyAppointmentsPatient %d): %v", patientID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		defer rows.Close()
@@ -192,7 +214,7 @@ func getMyAppointmentsPatientHandler(db *sql.DB) gin.HandlerFunc {
 			var appt AppointmentResponse
 			err := rows.Scan(&appt.ID, &appt.PatientID, &appt.DoctorScheduleID, &appt.Status, &appt.CreatedAt, &date, &startTime, &endTime, &appt.DoctorID, &appt.DoctorName, &specName)
 			if err != nil {
-				log.Printf("Appointments ERROR: Ошибка сканирования записи пациента %d: %v", patientID, err)
+				log.Printf("Appointments ERROR: Ошибка сканирования (getMyAppointmentsPatient %d): %v", patientID, err)
 				continue
 			}
 			dateStr := date.Format("2006-01-02")
@@ -206,8 +228,8 @@ func getMyAppointmentsPatientHandler(db *sql.DB) gin.HandlerFunc {
 			appointments = append(appointments, appt)
 		}
 		if err = rows.Err(); err != nil {
-			log.Printf("Appointments ERROR: Ошибка после чтения строк записей пациента %d: %v", patientID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке записей"})
+			log.Printf("Appointments ERROR: Ошибка итерации (getMyAppointmentsPatient %d): %v", patientID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		c.JSON(http.StatusOK, appointments)
@@ -216,6 +238,7 @@ func getMyAppointmentsPatientHandler(db *sql.DB) gin.HandlerFunc {
 
 // GET /appointments/my/doctor
 func getMyAppointmentsDoctorHandler(db *sql.DB) gin.HandlerFunc {
+	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		doctorID, userRole, err := getUserInfo(c)
 		if err != nil {
@@ -226,13 +249,11 @@ func getMyAppointmentsDoctorHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен"})
 			return
 		}
-		query := ` SELECT a.id, a.patient_id, a.doctor_schedule_id, a.status, a.created_at, ds.date, ds.start_time, ds.end_time, pat.full_name as patient_name
-					FROM appointments a JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id JOIN users pat ON a.patient_id = pat.id
-					WHERE ds.doctor_id = $1 ORDER BY ds.date DESC, ds.start_time DESC`
+		query := ` SELECT a.id, a.patient_id, a.doctor_schedule_id, a.status, a.created_at, ds.date, ds.start_time, ds.end_time, pat.full_name as patient_name FROM appointments a JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id JOIN users pat ON a.patient_id = pat.id WHERE ds.doctor_id = $1 ORDER BY ds.date DESC, ds.start_time DESC`
 		rows, err := db.Query(query, doctorID)
 		if err != nil {
-			log.Printf("Appointments ERROR: Ошибка БД при получении записей врача %d: %v", doctorID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении записей"})
+			log.Printf("Appointments ERROR: Ошибка БД (getMyAppointmentsDoctor %d): %v", doctorID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		defer rows.Close()
@@ -243,7 +264,7 @@ func getMyAppointmentsDoctorHandler(db *sql.DB) gin.HandlerFunc {
 			var appt AppointmentResponse
 			err := rows.Scan(&appt.ID, &appt.PatientID, &appt.DoctorScheduleID, &appt.Status, &appt.CreatedAt, &date, &startTime, &endTime, &appt.PatientName)
 			if err != nil {
-				log.Printf("Appointments ERROR: Ошибка сканирования записи врача %d: %v", doctorID, err)
+				log.Printf("Appointments ERROR: Ошибка сканирования (getMyAppointmentsDoctor %d): %v", doctorID, err)
 				continue
 			}
 			dateStr := date.Format("2006-01-02")
@@ -254,8 +275,8 @@ func getMyAppointmentsDoctorHandler(db *sql.DB) gin.HandlerFunc {
 			appointments = append(appointments, appt)
 		}
 		if err = rows.Err(); err != nil {
-			log.Printf("Appointments ERROR: Ошибка после чтения строк записей врача %d: %v", doctorID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке записей"})
+			log.Printf("Appointments ERROR: Ошибка итерации (getMyAppointmentsDoctor %d): %v", doctorID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		c.JSON(http.StatusOK, appointments)
@@ -264,6 +285,7 @@ func getMyAppointmentsDoctorHandler(db *sql.DB) gin.HandlerFunc {
 
 // PATCH /appointments/:id/status
 func updateAppointmentStatusHandler(db *sql.DB) gin.HandlerFunc {
+	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		requestUserID, requestUserRole, err := getUserInfo(c)
 		if err != nil {
@@ -281,7 +303,6 @@ func updateAppointmentStatusHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
 		}
-
 		var actualDoctorID int
 		checkQuery := `SELECT ds.doctor_id FROM appointments a JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id WHERE a.id = $1`
 		err = db.QueryRow(checkQuery, appointmentID).Scan(&actualDoctorID)
@@ -290,11 +311,10 @@ func updateAppointmentStatusHandler(db *sql.DB) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Запись не найдена"})
 				return
 			}
-			log.Printf("Appointments ERROR: Ошибка при проверке прав на запись %d: %v", appointmentID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при проверке прав"})
+			log.Printf("Appointments ERROR: Ошибка проверки прав на запись %d: %v", appointmentID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
-
 		canUpdate := false
 		if requestUserRole == "admin" {
 			canUpdate = true
@@ -305,12 +325,11 @@ func updateAppointmentStatusHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен"})
 			return
 		}
-
 		updateQuery := `UPDATE appointments SET status = $1 WHERE id = $2`
 		result, err := db.Exec(updateQuery, req.Status, appointmentID)
 		if err != nil {
-			log.Printf("Appointments ERROR: Ошибка при обновлении статуса записи %d: %v", appointmentID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при обновлении статуса"})
+			log.Printf("Appointments ERROR: Ошибка обновления статуса записи %d: %v", appointmentID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
 		rowsAffected, _ := result.RowsAffected()
@@ -322,8 +341,9 @@ func updateAppointmentStatusHandler(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-/* --- НОВЫЙ Хендлер для отмены/удаления записи --- */
+// DELETE /appointments/:id
 func cancelAppointmentHandler(db *sql.DB) gin.HandlerFunc {
+	// ... (код без изменений) ...
 	return func(c *gin.Context) {
 		requestUserID, requestUserRole, err := getUserInfo(c)
 		if err != nil {
@@ -336,10 +356,9 @@ func cancelAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID записи"})
 			return
 		}
-
 		tx, err := db.Begin()
 		if err != nil {
-			log.Printf("Appointments ERROR: Не удалось начать транзакцию для отмены записи %d: %v", appointmentID, err)
+			log.Printf("Appointments ERROR: Не удалось начать транзакцию отмены %d: %v", appointmentID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
@@ -351,7 +370,6 @@ func cancelAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 				tx.Rollback()
 			}
 		}()
-
 		var actualPatientID, scheduleSlotID int
 		var currentStatus string
 		checkQuery := `SELECT patient_id, doctor_schedule_id, status FROM appointments WHERE id = $1 FOR UPDATE`
@@ -362,12 +380,11 @@ func cancelAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 				return
 			}
-			log.Printf("Appointments ERROR: Ошибка при получении данных записи %d для отмены: %v", appointmentID, err)
-			err = errors.New("ошибка сервера при проверке записи")
+			log.Printf("Appointments ERROR: Ошибка получения данных записи %d для отмены: %v", appointmentID, err)
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		canCancel := false
 		if requestUserRole == "admin" {
 			canCancel = true
@@ -379,47 +396,140 @@ func cancelAppointmentHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
-
 		if currentStatus != "scheduled" {
 			err = errors.New("можно отменить только запланированную запись")
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
-
 		deleteApptQuery := "DELETE FROM appointments WHERE id = $1"
 		result, err := tx.Exec(deleteApptQuery, appointmentID)
 		if err != nil {
 			log.Printf("Appointments ERROR: Ошибка при удалении записи %d: %v", appointmentID, err)
-			err = errors.New("ошибка сервера при удалении записи")
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
 			log.Printf("Appointments WARN: Попытка удаления записи %d не затронула строк.", appointmentID)
-			err = errors.New("не удалось удалить запись (возможно, уже удалена)")
+			err = errors.New("не удалось удалить запись")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		updateSlotQuery := "UPDATE doctor_schedules SET is_available = true WHERE id = $1"
 		_, err = tx.Exec(updateSlotQuery, scheduleSlotID)
 		if err != nil {
 			log.Printf("Appointments CRITICAL ERROR: Запись %d удалена, но не удалось освободить слот %d: %v", appointmentID, scheduleSlotID, err)
-			err = errors.New("ошибка сервера при освобождении слота")
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		err = tx.Commit()
 		if err != nil {
-			log.Printf("Appointments ERROR: Не удалось подтвердить транзакцию отмены записи %d: %v", appointmentID, err)
-			err = errors.New("ошибка сервера при подтверждении отмены")
+			log.Printf("Appointments ERROR: Не удалось подтвердить транзакцию отмены %d: %v", appointmentID, err)
+			err = errors.New("ошибка сервера")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		log.Printf("Appointments INFO: Запись %d успешно удалена пользователем %d (роль %s)", appointmentID, requestUserID, requestUserRole)
+		log.Printf("Appointments INFO: Запись %d удалена пользователем %d (роль %s)", appointmentID, requestUserID, requestUserRole)
 		c.Status(http.StatusNoContent)
+	}
+}
+
+/* --- НОВЫЙ Хендлер для получения ВСЕХ записей (только админ) --- */
+func getAllAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Middleware adminRequired() уже проверил роль
+
+		// Получаем опциональные фильтры
+		patientIDStr := c.Query("patient_id")
+		doctorIDStr := c.Query("doctor_id")
+		// Можно добавить фильтры по дате, статусу и т.д.
+
+		// Формируем запрос
+		args := []interface{}{}
+		query := `
+            SELECT
+                a.id, a.patient_id, a.doctor_schedule_id, a.status, a.created_at,
+                ds.date, ds.start_time, ds.end_time,
+                doc.id as doctor_id, doc.full_name as doctor_name,
+                pat.full_name as patient_name,
+                spec.name as specialization_name
+            FROM appointments a
+            JOIN doctor_schedules ds ON a.doctor_schedule_id = ds.id
+            JOIN users doc ON ds.doctor_id = doc.id
+            JOIN users pat ON a.patient_id = pat.id
+            LEFT JOIN specializations spec ON doc.specialization_id = spec.id
+            WHERE 1=1` // Заглушка для удобного добавления AND
+
+		if patientIDStr != "" {
+			patientID, err := strconv.Atoi(patientIDStr)
+			if err == nil {
+				args = append(args, patientID)
+				query += fmt.Sprintf(" AND a.patient_id = $%d", len(args))
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат patient_id"})
+				return
+			}
+		}
+
+		if doctorIDStr != "" {
+			doctorID, err := strconv.Atoi(doctorIDStr)
+			if err == nil {
+				args = append(args, doctorID)
+				query += fmt.Sprintf(" AND ds.doctor_id = $%d", len(args))
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат doctor_id"})
+				return
+			}
+		}
+
+		query += " ORDER BY ds.date DESC, ds.start_time DESC" // Сортировка
+
+		// Выполняем запрос
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			log.Printf("Appointments ERROR: Ошибка БД (getAllAppointments): %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при получении записей"})
+			return
+		}
+		defer rows.Close()
+
+		// Обрабатываем результат
+		appointments := []AppointmentResponse{}
+		var specName sql.NullString
+		var date time.Time
+		var startTime, endTime string
+		for rows.Next() {
+			var appt AppointmentResponse
+			err := rows.Scan(
+				&appt.ID, &appt.PatientID, &appt.DoctorScheduleID, &appt.Status, &appt.CreatedAt,
+				&date, &startTime, &endTime,
+				&appt.DoctorID, &appt.DoctorName, // doctor_id и doctor_name
+				&appt.PatientName, // patient_name
+				&specName,         // specialization_name
+			)
+			if err != nil {
+				log.Printf("Appointments ERROR: Ошибка сканирования (getAllAppointments): %v", err)
+				continue
+			}
+			dateStr := date.Format("2006-01-02")
+			appt.Date = &dateStr
+			appt.StartTime = &startTime
+			appt.EndTime = &endTime
+			if specName.Valid {
+				name := specName.String
+				appt.SpecializationName = &name
+			}
+			appointments = append(appointments, appt)
+		}
+
+		if err = rows.Err(); err != nil {
+			log.Printf("Appointments ERROR: Ошибка итерации (getAllAppointments): %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при обработке записей"})
+			return
+		}
+
+		c.JSON(http.StatusOK, appointments)
 	}
 }

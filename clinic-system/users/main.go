@@ -69,7 +69,7 @@ func getUserInfoFromHeader(c *gin.Context) (userID int, userRole string, err err
 
 func adminRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_, role, err := getUserInfoFromHeader(c)
+		_, role, err := getUserInfoFromHeader(c) // err объявляется здесь
 		if err != nil {
 			log.Printf("ADMIN AUTH ERROR: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ошибка аутентификации"})
@@ -92,7 +92,7 @@ func extractUserIDFromToken(tokenStr string) (int, error) {
 			return nil, fmt.Errorf("неожиданный метод подписи: %v", t.Header["alg"])
 		}
 		return jwtSecret, nil
-	})
+	}) // err объявляется здесь
 	if err != nil || !token.Valid {
 		log.Printf("Ошибка валидации токена: %v", err)
 		return 0, errors.New("некорректный или просроченный токен")
@@ -119,7 +119,7 @@ func getSpecializationsHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var specializations []Specialization
 		query := "SELECT id, name FROM specializations ORDER BY name"
-		rows, err := db.Query(query)
+		rows, err := db.Query(query) // Объявляем err
 		if err != nil {
 			log.Printf("Users ERROR: Ошибка БД (getSpecializations): %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
@@ -131,9 +131,10 @@ func getSpecializationsHandler(db *sql.DB) gin.HandlerFunc {
 			if errScan := rows.Scan(&s.ID, &s.Name); errScan != nil {
 				log.Printf("Users ERROR: Ошибка сканирования spec: %v", errScan)
 				continue
-			}
+			} // Используем локальную errScan
 			specializations = append(specializations, s)
 		}
+		// Переиспользуем err
 		if err = rows.Err(); err != nil {
 			log.Printf("Users ERROR: Ошибка итерации spec: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
@@ -147,12 +148,14 @@ func getSpecializationsHandler(db *sql.DB) gin.HandlerFunc {
 func createSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var newSpec Specialization
+		// Объявляем err
 		if err := c.ShouldBindJSON(&newSpec); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
 		}
 		query := "INSERT INTO specializations (name) VALUES ($1) RETURNING id"
-		err := db.QueryRow(query, newSpec.Name).Scan(&newSpec.ID) // Объявляем err здесь
+		// Переиспользуем err
+		err := db.QueryRow(query, newSpec.Name).Scan(&newSpec.ID)
 		if err != nil {
 			if strings.Contains(err.Error(), "duplicate key") {
 				c.JSON(http.StatusConflict, gin.H{"error": "Специализация с таким названием уже существует"})
@@ -171,18 +174,20 @@ func createSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 func updateSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
-		specID, err := strconv.Atoi(idStr) // Объявляем err здесь
+		specID, err := strconv.Atoi(idStr) // Объявляем err
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID специализации"})
 			return
 		}
 		var updatedSpec Specialization
+		// Переиспользуем err
 		if err = c.ShouldBindJSON(&updatedSpec); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
-		} // Переиспользуем err
+		}
 		query := "UPDATE specializations SET name = $1 WHERE id = $2 RETURNING id, name"
-		err = db.QueryRow(query, updatedSpec.Name, specID).Scan(&updatedSpec.ID, &updatedSpec.Name) // Переиспользуем err
+		// Переиспользуем err
+		err = db.QueryRow(query, updatedSpec.Name, specID).Scan(&updatedSpec.ID, &updatedSpec.Name)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Специализация не найдена"})
@@ -205,14 +210,15 @@ func updateSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 func deleteSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
-		specID, err := strconv.Atoi(idStr) // Объявляем err здесь
+		specID, err := strconv.Atoi(idStr) // Объявляем err
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID специализации"})
 			return
 		}
 		var userCount int
 		checkQuery := "SELECT COUNT(*) FROM users WHERE specialization_id = $1"
-		err = db.QueryRow(checkQuery, specID).Scan(&userCount) // Переиспользуем err
+		// Переиспользуем err
+		err = db.QueryRow(checkQuery, specID).Scan(&userCount)
 		if err != nil {
 			log.Printf("Users ERROR: Ошибка проверки использования spec %d: %v", specID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
@@ -223,7 +229,8 @@ func deleteSpecializationHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		deleteQuery := "DELETE FROM specializations WHERE id = $1"
-		result, err := db.Exec(deleteQuery, specID) // Переобъявляем err здесь
+		// Переобъявляем err (result нужен)
+		result, err := db.Exec(deleteQuery, specID)
 		if err != nil {
 			log.Printf("Users ERROR: Ошибка БД (deleteSpec %d): %v", specID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
@@ -253,6 +260,7 @@ func getUsersHandler(db *sql.DB) gin.HandlerFunc {
 			queryArgs = append(queryArgs, roleFilter)
 		}
 		baseQuery += " ORDER BY u.full_name"
+		// Переиспользуем err
 		rows, err = db.Query(baseQuery, queryArgs...)
 		if err != nil {
 			log.Printf("Users ERROR: Ошибка БД (getUsers): %v", err)
@@ -267,7 +275,7 @@ func getUsersHandler(db *sql.DB) gin.HandlerFunc {
 			if errScan := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &specID, &specName); errScan != nil {
 				log.Printf("Users ERROR: Ошибка сканирования user: %v", errScan)
 				continue
-			} // Используем errScan локально
+			}
 			if specID.Valid {
 				id := int(specID.Int64)
 				u.SpecializationID = &id
@@ -278,11 +286,12 @@ func getUsersHandler(db *sql.DB) gin.HandlerFunc {
 			}
 			users = append(users, u)
 		}
+		// Переиспользуем err
 		if err = rows.Err(); err != nil {
 			log.Printf("Users ERROR: Ошибка итерации users: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
-		} // Переиспользуем err
+		}
 		c.JSON(http.StatusOK, users)
 	}
 }
@@ -298,7 +307,7 @@ func registerHandler(db *sql.DB) gin.HandlerFunc {
 			Role             string `json:"role" binding:"required,oneof=patient doctor admin"`
 			SpecializationID *int   `json:"specialization_id"`
 		}
-		// Ошибка err объявляется здесь
+		// Объявляем err здесь
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
@@ -311,7 +320,7 @@ func registerHandler(db *sql.DB) gin.HandlerFunc {
 			req.SpecializationID = nil
 		} else {
 			var exists bool
-			errCheckSpec := db.QueryRow("SELECT EXISTS(SELECT 1 FROM specializations WHERE id = $1)", *req.SpecializationID).Scan(&exists) // Локальная errCheckSpec
+			errCheckSpec := db.QueryRow("SELECT EXISTS(SELECT 1 FROM specializations WHERE id = $1)", *req.SpecializationID).Scan(&exists)
 			if errCheckSpec != nil {
 				log.Printf("Users ERROR: Ошибка проверки spec_id %d: %v", *req.SpecializationID, errCheckSpec)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
@@ -322,7 +331,7 @@ func registerHandler(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		// Ошибка err объявляется здесь
+		// Переобъявляем err
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			log.Printf("Ошибка хэширования: %v", err)
@@ -330,7 +339,7 @@ func registerHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		var userID int
-		// Ошибка err объявляется здесь
+		// Переиспользуем err
 		err = db.QueryRow(`INSERT INTO users (full_name, email, password_hash, phone, role, specialization_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 			req.FullName, req.Email, string(hash), req.Phone, req.Role, req.SpecializationID).Scan(&userID)
 		if err != nil {
@@ -353,7 +362,7 @@ func loginHandler(db *sql.DB) gin.HandlerFunc {
 			Email    string `json:"email" binding:"required,email"`
 			Password string `json:"password" binding:"required"`
 		}
-		// Ошибка err объявляется здесь
+		// Объявляем err
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
 			return
@@ -371,14 +380,14 @@ func loginHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка"})
 			return
 		}
-		// Ошибка err объявляется здесь
+		// Переиспользуем err
 		err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверные учётные данные"})
 			return
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": id, "exp": time.Now().Add(24 * time.Hour).Unix()})
-		// Ошибка err объявляется здесь
+		// Переобъявляем err
 		tokenString, err := token.SignedString(jwtSecret)
 		if err != nil {
 			log.Printf("Ошибка подписи токена: %v", err)
@@ -402,7 +411,7 @@ func getMeHandler(db *sql.DB) gin.HandlerFunc {
 		var specID sql.NullInt64
 		var specName sql.NullString
 		query := `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.specialization_id, s.name as specialization_name FROM users u LEFT JOIN specializations s ON u.specialization_id = s.id WHERE u.id = $1`
-		// Ошибка err объявляется здесь
+		// Объявляем err
 		err := db.QueryRow(query, userID).Scan(&u.ID, &u.FullName, &u.Email, &u.Phone, &u.Role, &specID, &specName)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -429,7 +438,7 @@ func getMeHandler(db *sql.DB) gin.HandlerFunc {
 func getUserByIdHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userIDStr := c.Param("id")
-		targetUserID, err := strconv.Atoi(userIDStr) // Объявляем err здесь
+		targetUserID, err := strconv.Atoi(userIDStr) // Объявляем err
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат ID"})
 			return
@@ -465,14 +474,17 @@ func getUserByIdHandler(db *sql.DB) gin.HandlerFunc {
 func updateUserHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userIDStr := c.Param("id")
-		userIDToUpdate, err := strconv.Atoi(userIDStr) // Объявляем err здесь
+		userIDToUpdate, err := strconv.Atoi(userIDStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID пользователя"})
 			return
-		}
+		} // Объявляем err
 		requestUserID, _, errAuth := getUserInfoFromHeader(c)
-		if errAuth != nil { /* handle */
-		} // Обрабатываем ошибку от getUserInfoFromHeader
+		if errAuth != nil {
+			log.Printf("ADMIN AUTH ERROR (updateUser): %v", errAuth)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ошибка аутентификации"})
+			return
+		}
 		if requestUserID == userIDToUpdate {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Нельзя редактировать свой профиль этим методом"})
 			return
@@ -517,7 +529,6 @@ func updateUserHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера"})
 			return
 		}
-		// Получаем и возвращаем обновленные данные
 		var u User
 		var specID sql.NullInt64
 		var specName sql.NullString
@@ -552,8 +563,11 @@ func deleteUserHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		requestUserID, _, errAuth := getUserInfoFromHeader(c)
-		if errAuth != nil { /* handle */
-		} // Обрабатываем errAuth
+		if errAuth != nil {
+			log.Printf("ADMIN AUTH ERROR (deleteUser): %v", errAuth)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ошибка аутентификации"})
+			return
+		}
 		if requestUserID == userIDToDelete {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Нельзя удалить свой собственный аккаунт"})
 			return
@@ -588,15 +602,15 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL не задана")
 	}
-	// Объявляем err здесь для sql.Open и db.Ping
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
-	defer db.Close()
+	defer db.Close() // Объявляем err здесь
+	// Переиспользуем err для Ping
 	if err = db.Ping(); err != nil {
 		log.Fatalf("Ошибка пинга БД: %v", err)
-	} // Используем = вместо :=
+	}
 	log.Println("Успешное подключение к БД!")
 
 	r := gin.Default()
@@ -645,15 +659,15 @@ func main() {
 		adminRoutes.DELETE("/specializations/:id", deleteSpecializationHandler(db))
 		adminRoutes.PATCH("/users/:id", updateUserHandler(db))
 		adminRoutes.DELETE("/users/:id", deleteUserHandler(db))
-		// Нет лишних запятых или использования err здесь
-	} // <-- Строка ~360
+		// Здесь нет использования err
+	}
 
 	/* --- Запуск сервера --- */
-	port := ":8080"                                       // <-- Строка ~363
-	log.Printf("Users service запущен на порту %s", port) // <-- Строка ~364
-	// Объявляем err для r.Run
+	port := ":8080"
+	log.Printf("Users service запущен на порту %s", port)
+	// Объявляем err здесь
 	if err := r.Run(port); err != nil {
 		log.Fatalf("Ошибка запуска Users service: %v", err)
-	} // <-- Строка ~365
-	// Ошибки, на которые указывал компилятор (370+), не должны возникать, так как здесь нет кода
+	}
+	// Здесь нет использования err после if
 }
