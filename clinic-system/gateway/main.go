@@ -53,7 +53,7 @@ func extractUserIDFromToken(tokenStr string) (int, error) {
 	return int(userIDFloat), nil
 }
 
-// --- Структура пользователя ---
+// --- Структура пользователя (для декодирования ответа users service) ---
 type User struct {
 	ID                 int     `json:"id"`
 	FullName           string  `json:"full_name"`
@@ -135,17 +135,11 @@ func AuthAndHeadersMiddleware() gin.HandlerFunc {
 
 // --- Хелпер проксирования ---
 func proxy(c *gin.Context, targetServiceBaseURL string) {
-	targetPath := c.Param("path") // Предполагаем, что путь всегда передается через *path
-	// Если path пустой (например, для /api/login), используем оригинальный путь запроса к шлюзу
+	targetPath := c.Param("path")
 	if targetPath == "" {
-		// Удаляем префикс /api (если он есть)
 		if strings.HasPrefix(c.Request.URL.Path, "/api") {
-			// /api/login -> /login
-			// /api/users -> /users
-			// /api/specializations -> /specializations
 			targetPath = strings.TrimPrefix(c.Request.URL.Path, "/api")
 		} else {
-			// Если префикса нет, используем как есть (маловероятно в текущей структуре)
 			targetPath = c.Request.URL.Path
 		}
 	}
@@ -190,7 +184,7 @@ func main() {
 
 	// Настройка CORS
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"*"}, // Разрешаем все для разработки
+		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -202,35 +196,62 @@ func main() {
 	// --- Маршруты ---
 
 	// Хелпер для проксирования на Users Service
-	// Передаем базовый URL users service и путь внутри него
 	usersProxyHandler := func(targetServicePath string) gin.HandlerFunc {
 		return func(c *gin.Context) {
-			// Передаем только путь ВНУТРИ сервиса users
-			c.Params = append(c.Params, gin.Param{Key: "path", Value: targetServicePath})
-			proxy(c, "http://users:8080") // Базовый URL users service
+			// Если targetServicePath не содержит *path, добавляем его из URL Gin
+			// Это нужно для обработки :id и других параметров в самом сервисе users
+			ginPath := c.Param("path")               // Получаем *path из Gin, если он есть в маршруте шлюза
+			finalPath := targetServicePath + ginPath // Собираем полный путь для сервиса users
+
+			// Если в targetServicePath уже есть параметры (маловероятно для этого хелпера сейчас),
+			// нужно быть осторожнее при конкатенации. Пока предполагаем targetServicePath - это базовый путь.
+
+			// Передаем собранный путь в Params для функции proxy
+			// Убираем старый path, если он был, чтобы не дублировать
+			newParams := []gin.Param{}
+			for _, p := range c.Params {
+				if p.Key != "path" {
+					newParams = append(newParams, p)
+				}
+			}
+			c.Params = newParams // Обновляем параметры без старого path
+
+			c.Params = append(c.Params, gin.Param{Key: "path", Value: finalPath})
+			proxy(c, "http://users:8080")
 		}
 	}
 
-	// Публичные маршруты Users service
+	// --- Публичные маршруты ---
 	r.POST("/api/register", usersProxyHandler("/register"))
 	r.POST("/api/login", usersProxyHandler("/login"))
-	r.GET("/api/users", usersProxyHandler("/users"))                     // Для ?role=doctor
-	r.GET("/api/specializations", usersProxyHandler("/specializations")) // Новый маршрут
+	r.GET("/api/users", usersProxyHandler("/users"))                     // Передаст /users?role=doctor
+	r.GET("/api/specializations", usersProxyHandler("/specializations")) // Передаст /specializations
 
-	// Маршрут /me Users service (проверяет токен сам)
+	// Маршрут /me (требует токена, users service сам проверит)
 	r.GET("/api/me", usersProxyHandler("/me"))
 
-	// Защищенные группы (требуют токена, проверенного шлюзом)
+	// --- Защищенные маршруты (требуют токена, проверенного шлюзом) ---
 	authGroup := r.Group("/api")
 	authGroup.Use(AuthAndHeadersMiddleware())
 	{
-		// Используем .Any для всех методов HTTP
-		// Передаем базовый URL целевого сервиса
+		// CRUD специализаций (требуют токена + роль admin проверится в users service)
+		authGroup.POST("/specializations", usersProxyHandler("/specializations")) // POST /api/specializations -> users:8080/specializations
+		// Для PUT и DELETE нам нужен ID из пути, поэтому используем *path в маршруте шлюза
+		// usersProxyHandler добавит этот *path к базовому /specializations
+		authGroup.PUT("/specializations/*path", usersProxyHandler("/specializations"))    // PUT /api/specializations/:id -> users:8080/specializations/:id
+		authGroup.DELETE("/specializations/*path", usersProxyHandler("/specializations")) // DELETE /api/specializations/:id -> users:8080/specializations/:id
+
+		// Остальные защищенные маршруты
 		authGroup.Any("/schedules/*path", func(c *gin.Context) { proxy(c, "http://schedules:8082") })
 		authGroup.Any("/appointments/*path", func(c *gin.Context) { proxy(c, "http://appointments:8083") })
 		authGroup.Any("/medical_records/*path", func(c *gin.Context) { proxy(c, "http://medical_records:8084") })
 		authGroup.Any("/payments/*path", func(c *gin.Context) { proxy(c, "http://payments:8085") })
 		authGroup.Any("/notify/*path", func(c *gin.Context) { proxy(c, "http://notifications:8086") })
+
+		// Маршруты для управления пользователями (админом) тоже должны быть здесь
+		// Они будут проксироваться на users service, используя usersProxyHandler
+		// authGroup.PATCH("/users/*path", usersProxyHandler("/users")) // Пример для PATCH /api/users/:id (для смены роли/специализации)
+		// authGroup.DELETE("/users/*path", usersProxyHandler("/users")) // Пример для DELETE /api/users/:id
 	}
 
 	// --- Запуск шлюза ---
