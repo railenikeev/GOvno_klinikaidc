@@ -22,7 +22,7 @@ var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func init() {
 	if len(jwtSecret) == 0 {
-		log.Println("ПРЕДУПРЕЖДЕНИЕ (Gateway): Переменная окружения JWT_SECRET не установлена, используется значение по умолчанию 'supersecret'.")
+		log.Println("ПРЕДУПРЕЖДЕНИЕ (Gateway): JWT_SECRET не установлена, используется 'supersecret'.")
 		jwtSecret = []byte("supersecret")
 	}
 }
@@ -53,7 +53,7 @@ func extractUserIDFromToken(tokenStr string) (int, error) {
 	return int(userIDFloat), nil
 }
 
-// --- Структура пользователя (для декодирования ответа users service) ---
+// --- Структура пользователя ---
 type User struct {
 	ID                 int     `json:"id"`
 	FullName           string  `json:"full_name"`
@@ -70,31 +70,31 @@ func getUserDataFromUsersService(userID int) (*User, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", usersServiceURL, nil)
 	if err != nil {
-		log.Printf("Gateway: Ошибка создания запроса к users service: %v", err)
+		log.Printf("Gateway: Ошибка создания запроса к users: %v", err)
 		return nil, fmt.Errorf("внутренняя ошибка шлюза")
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Gateway: Ошибка вызова users service (%s): %v", usersServiceURL, err)
+		log.Printf("Gateway: Ошибка вызова users (%s): %v", usersServiceURL, err)
 		return nil, fmt.Errorf("сервис пользователей недоступен")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		log.Printf("Gateway: Users service вернул статус %d для user %d. Body: %s", resp.StatusCode, userID, string(bodyBytes))
+		log.Printf("Gateway: Users service status %d for user %d. Body: %s", resp.StatusCode, userID, string(bodyBytes))
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("пользователь с ID %d не найден в сервисе пользователей", userID)
+			return nil, fmt.Errorf("пользователь %d не найден", userID)
 		}
-		return nil, fmt.Errorf("сервис пользователей вернул ошибку (статус %d)", resp.StatusCode)
+		return nil, fmt.Errorf("ошибка сервиса пользователей (%d)", resp.StatusCode)
 	}
 	var user User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		log.Printf("Gateway: Ошибка декодирования данных пользователя из users service: %v", err)
-		return nil, fmt.Errorf("ошибка обработки ответа от сервиса пользователей")
+		log.Printf("Gateway: Ошибка декодирования user: %v", err)
+		return nil, fmt.Errorf("ошибка ответа сервиса пользователей")
 	}
 	if user.Role == "" {
-		log.Printf("Gateway: Получены неполные данные пользователя (отсутствует роль) для userID %d", userID)
-		return nil, fmt.Errorf("не удалось получить роль пользователя")
+		log.Printf("Gateway: Отсутствует роль для userID %d", userID)
+		return nil, fmt.Errorf("не удалось получить роль")
 	}
 	return &user, nil
 }
@@ -143,15 +143,14 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 			targetPath = c.Request.URL.Path
 		}
 	}
-
 	finalURL := targetServiceBaseURL + targetPath
 	if c.Request.URL.RawQuery != "" {
 		finalURL += "?" + c.Request.URL.RawQuery
 	}
 	proxyReq, err := http.NewRequest(c.Request.Method, finalURL, c.Request.Body)
 	if err != nil {
-		log.Printf("Gateway: Ошибка создания прокси-запроса для %s: %v", finalURL, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка шлюза при создании запроса"})
+		log.Printf("Gateway: Proxy request error for %s: %v", finalURL, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка шлюза"})
 		return
 	}
 	proxyReq.Header = c.Request.Header
@@ -159,8 +158,8 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
-		log.Printf("Gateway: Ошибка при вызове целевого сервиса (%s): %v", finalURL, err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Целевой сервис недоступен или вернул ошибку"})
+		log.Printf("Gateway: Upstream service error (%s): %v", finalURL, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Сервис недоступен"})
 		return
 	}
 	defer resp.Body.Close()
@@ -175,47 +174,31 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 	}
 	_, err = io.Copy(c.Writer, resp.Body)
 	if err != nil {
-		log.Printf("Gateway: Ошибка копирования тела ответа для %s: %v", finalURL, err)
+		log.Printf("Gateway: Error copying response body for %s: %v", finalURL, err)
 	}
 }
 
 func main() {
 	r := gin.Default()
-
-	// Настройка CORS
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		AllowOrigins: []string{"*"}, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
+		ExposeHeaders: []string{"Content-Length"}, AllowCredentials: true, MaxAge: 12 * time.Hour,
 	}
 	r.Use(cors.New(corsConfig))
 
 	// --- Маршруты ---
-
-	// Хелпер для проксирования на Users Service
 	usersProxyHandler := func(targetServicePath string) gin.HandlerFunc {
 		return func(c *gin.Context) {
-			// Если targetServicePath не содержит *path, добавляем его из URL Gin
-			// Это нужно для обработки :id и других параметров в самом сервисе users
-			ginPath := c.Param("path")               // Получаем *path из Gin, если он есть в маршруте шлюза
-			finalPath := targetServicePath + ginPath // Собираем полный путь для сервиса users
-
-			// Если в targetServicePath уже есть параметры (маловероятно для этого хелпера сейчас),
-			// нужно быть осторожнее при конкатенации. Пока предполагаем targetServicePath - это базовый путь.
-
-			// Передаем собранный путь в Params для функции proxy
-			// Убираем старый path, если он был, чтобы не дублировать
+			ginPath := c.Param("path")
+			finalPath := targetServicePath + ginPath
 			newParams := []gin.Param{}
 			for _, p := range c.Params {
 				if p.Key != "path" {
 					newParams = append(newParams, p)
 				}
 			}
-			c.Params = newParams // Обновляем параметры без старого path
-
+			c.Params = newParams
 			c.Params = append(c.Params, gin.Param{Key: "path", Value: finalPath})
 			proxy(c, "http://users:8080")
 		}
@@ -224,34 +207,40 @@ func main() {
 	// --- Публичные маршруты ---
 	r.POST("/api/register", usersProxyHandler("/register"))
 	r.POST("/api/login", usersProxyHandler("/login"))
-	r.GET("/api/users", usersProxyHandler("/users"))                     // Передаст /users?role=doctor
-	r.GET("/api/specializations", usersProxyHandler("/specializations")) // Передаст /specializations
+	r.GET("/api/users", usersProxyHandler("/users"))
+	r.GET("/api/specializations", usersProxyHandler("/specializations"))
+	r.GET("/api/me", usersProxyHandler("/me")) // /me требует токена, но users service проверяет сам
 
-	// Маршрут /me (требует токена, users service сам проверит)
-	r.GET("/api/me", usersProxyHandler("/me"))
-
-	// --- Защищенные маршруты (требуют токена, проверенного шлюзом) ---
+	// --- Защищенные маршруты ---
 	authGroup := r.Group("/api")
 	authGroup.Use(AuthAndHeadersMiddleware())
 	{
-		// CRUD специализаций (требуют токена + роль admin проверится в users service)
-		authGroup.POST("/specializations", usersProxyHandler("/specializations")) // POST /api/specializations -> users:8080/specializations
-		// Для PUT и DELETE нам нужен ID из пути, поэтому используем *path в маршруте шлюза
-		// usersProxyHandler добавит этот *path к базовому /specializations
-		authGroup.PUT("/specializations/*path", usersProxyHandler("/specializations"))    // PUT /api/specializations/:id -> users:8080/specializations/:id
-		authGroup.DELETE("/specializations/*path", usersProxyHandler("/specializations")) // DELETE /api/specializations/:id -> users:8080/specializations/:id
+		// Specializations (Admin - POST/PUT/DELETE)
+		authGroup.POST("/specializations", usersProxyHandler("/specializations"))
+		authGroup.PUT("/specializations/*path", usersProxyHandler("/specializations"))
+		authGroup.DELETE("/specializations/*path", usersProxyHandler("/specializations"))
 
-		// Остальные защищенные маршруты
+		// Users (Admin - PATCH/DELETE)
+		authGroup.PATCH("/users/*path", usersProxyHandler("/users"))
+		authGroup.DELETE("/users/*path", usersProxyHandler("/users"))
+
+		// Schedules
 		authGroup.Any("/schedules/*path", func(c *gin.Context) { proxy(c, "http://schedules:8082") })
+		// Appointments
 		authGroup.Any("/appointments/*path", func(c *gin.Context) { proxy(c, "http://appointments:8083") })
+		// Medical Records
 		authGroup.Any("/medical_records/*path", func(c *gin.Context) { proxy(c, "http://medical_records:8084") })
+		// Payments
 		authGroup.Any("/payments/*path", func(c *gin.Context) { proxy(c, "http://payments:8085") })
-		authGroup.Any("/notify/*path", func(c *gin.Context) { proxy(c, "http://notifications:8086") })
 
-		// Маршруты для управления пользователями (админом) тоже должны быть здесь
-		// Они будут проксироваться на users service, используя usersProxyHandler
-		// authGroup.PATCH("/users/*path", usersProxyHandler("/users")) // Пример для PATCH /api/users/:id (для смены роли/специализации)
-		// authGroup.DELETE("/users/*path", usersProxyHandler("/users")) // Пример для DELETE /api/users/:id
+		// Notifications (только GET и PATCH доступны через шлюз)
+		// УДАЛЯЕМ POST /api/notify, оставляем GET и PATCH
+		authGroup.GET("/notify", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{Key: "path", Value: ""})
+			proxy(c, "http://notifications:8086/notify")
+		}) // Для GET /api/notify
+		authGroup.PATCH("/notify/*path", func(c *gin.Context) { proxy(c, "http://notifications:8086/notify") }) // Для PATCH /api/notify/:id/read
+
 	}
 
 	// --- Запуск шлюза ---
