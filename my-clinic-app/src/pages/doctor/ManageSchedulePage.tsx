@@ -347,7 +347,7 @@ const ManageSchedulePage: React.FC = () => {
                                     {Object.entries(groupedExistingSlots).map(([date, slotsOnDate]) => (
                                         <div key={date}>
                                             <h3 className="font-semibold mb-2 text-lg">
-                                                {format(parseISO(date), 'd MMMM<y_bin_46>, EEEE', { locale: ru })}
+                                                {format(parseISO(date), 'd MMMM yyyy, EEEE', { locale: ru })} {/* ИСПРАВЛЕНО: гггг -> yyyy */}
                                             </h3>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {slotsOnDate.map((slot: ScheduleSlot) => (
