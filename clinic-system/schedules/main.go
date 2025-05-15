@@ -202,43 +202,23 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		slots := make([]ScheduleSlotModel, 0) // Инициализация пустого (не nil) среза
+		slots := make([]ScheduleSlotModel, 0)
 
 		for rows.Next() {
 			var s ScheduleSlotModel
 			var dbDate time.Time
-			var dbStartTimeStr string
-			var dbEndTimeStr string
+			var dbStartTime, dbEndTime time.Time // <--- ИЗМЕНЕНИЕ: Сканируем напрямую в time.Time
 
-			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTimeStr, &dbEndTimeStr, &s.IsAvailable); errScan != nil {
+			// Предполагаем, что драйвер PostgreSQL корректно сканирует TIME в time.Time
+			// Дата будет 0000-01-01 или 0001-01-01, время будет правильным, часовой пояс UTC
+			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); errScan != nil {
 				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для доктора %d: %v", currentUserID, errScan)
 				continue
 			}
 
 			s.Date = dbDate.Format("2006-01-02")
-			// Убедимся, что время в формате HH:MM
-			parsedStartTime, errSt := time.Parse(time.Kitchen, dbStartTimeStr) // time.Kitchen это "3:04PM"
-			if errSt != nil {
-				// Попробуем другой стандартный формат, если Kitchen не подошел
-				parsedStartTime, errSt = time.Parse("15:04:05", dbStartTimeStr)
-			}
-			if errSt == nil {
-				s.StartTime = parsedStartTime.Format("15:04")
-			} else {
-				s.StartTime = dbStartTimeStr // Оставляем как есть, если парсинг не удался (на случай если формат уже HH:MM)
-				log.Printf("Schedules WARN: Не удалось точно распарсить start_time '%s' для слота ID %d, использовано исходное значение", dbStartTimeStr, s.ID)
-			}
-
-			parsedEndTime, errEt := time.Parse(time.Kitchen, dbEndTimeStr)
-			if errEt != nil {
-				parsedEndTime, errEt = time.Parse("15:04:05", dbEndTimeStr)
-			}
-			if errEt == nil {
-				s.EndTime = parsedEndTime.Format("15:04")
-			} else {
-				s.EndTime = dbEndTimeStr
-				log.Printf("Schedules WARN: Не удалось точно распарсить end_time '%s' для слота ID %d, использовано исходное значение", dbEndTimeStr, s.ID)
-			}
+			s.StartTime = dbStartTime.Format("15:04") // Форматируем только время
+			s.EndTime = dbEndTime.Format("15:04")     // Форматируем только время
 
 			slots = append(slots, s)
 		}
@@ -265,6 +245,7 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 
 		doctorIDStr := c.Param("id")
 		doctorID, err := strconv.Atoi(doctorIDStr)
+		// ... (остальная часть функции до цикла rows.Next() такая же) ...
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID врача"})
 			return
@@ -288,8 +269,8 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 
 		var startDate time.Time
 		if startDateStr != "" {
-			parsedDate, err := time.Parse("2006-01-02", startDateStr)
-			if err == nil {
+			parsedDate, errDateParse := time.Parse("2006-01-02", startDateStr)
+			if errDateParse == nil {
 				startDate = parsedDate
 			} else {
 				log.Printf("Schedules WARN: Неверный формат startDate '%s', используется текущая дата.", startDateStr)
@@ -311,41 +292,21 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		slots := make([]ScheduleSlotModel, 0) // Инициализация пустого (не nil) среза
+		slots := make([]ScheduleSlotModel, 0)
 
 		for rows.Next() {
 			var s ScheduleSlotModel
 			var dbDate time.Time
-			var dbStartTimeStr string
-			var dbEndTimeStr string
+			var dbStartTime, dbEndTime time.Time // <--- ИЗМЕНЕНИЕ: Сканируем напрямую в time.Time
 
-			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTimeStr, &dbEndTimeStr, &s.IsAvailable); errScan != nil {
+			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); errScan != nil {
 				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для врача %d: %v", doctorID, errScan)
 				continue
 			}
 			s.Date = dbDate.Format("2006-01-02")
+			s.StartTime = dbStartTime.Format("15:04") // Форматируем только время
+			s.EndTime = dbEndTime.Format("15:04")     // Форматируем только время
 
-			parsedStartTime, errSt := time.Parse(time.Kitchen, dbStartTimeStr)
-			if errSt != nil {
-				parsedStartTime, errSt = time.Parse("15:04:05", dbStartTimeStr)
-			}
-			if errSt == nil {
-				s.StartTime = parsedStartTime.Format("15:04")
-			} else {
-				s.StartTime = dbStartTimeStr
-				log.Printf("Schedules WARN: Не удалось точно распарсить start_time '%s' для слота ID %d, использовано исходное значение", dbStartTimeStr, s.ID)
-			}
-
-			parsedEndTime, errEt := time.Parse(time.Kitchen, dbEndTimeStr)
-			if errEt != nil {
-				parsedEndTime, errEt = time.Parse("15:04:05", dbEndTimeStr)
-			}
-			if errEt == nil {
-				s.EndTime = parsedEndTime.Format("15:04")
-			} else {
-				s.EndTime = dbEndTimeStr
-				log.Printf("Schedules WARN: Не удалось точно распарсить end_time '%s' для слота ID %d, использовано исходное значение", dbEndTimeStr, s.ID)
-			}
 			slots = append(slots, s)
 		}
 
