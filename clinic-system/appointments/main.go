@@ -93,20 +93,28 @@ func main() {
 
 	r := gin.Default()
 
-	// Создаем группу /appointments
-	apptRoutes := r.Group("/appointments")
-	{
-		// Эндпоинты для пациентов и врачей (требуют аутентификации, но роль проверяется в хендлере)
-		apptRoutes.POST("", createAppointmentHandler(db))
-		apptRoutes.GET("/my/patient", getMyAppointmentsPatientHandler(db))
-		apptRoutes.GET("/my/doctor", getMyAppointmentsDoctorHandler(db))
-		apptRoutes.PATCH("/:id/status", updateAppointmentStatusHandler(db)) // Права проверяются внутри
-		apptRoutes.DELETE("/:id", cancelAppointmentHandler(db))             // Права проверяются внутри
+	// --- ИЗМЕНЕНИЕ ЗДЕСЬ: Маршруты определяются от корня роутера r ---
+	// Группа r.Group("/appointments") УДАЛЕНА
 
-		// НОВЫЙ Эндпоинт для админа (защищаем middleware)
-		// GET /appointments
-		apptRoutes.GET("", adminRequired(), getAllAppointmentsHandler(db)) // Добавляем adminRequired middleware
-	}
+	// POST / -> для создания записи (ранее было apptRoutes.POST(""))
+	r.POST("", createAppointmentHandler(db))
+
+	// GET /my/patient -> для получения записей пациента (ранее apptRoutes.GET("/my/patient",...))
+	r.GET("/my/patient", getMyAppointmentsPatientHandler(db))
+
+	// GET /my/doctor -> для получения записей врача (ранее apptRoutes.GET("/my/doctor",...))
+	r.GET("/my/doctor", getMyAppointmentsDoctorHandler(db))
+
+	// PATCH /:id/status -> для изменения статуса (ранее apptRoutes.PATCH("/:id/status",...))
+	r.PATCH("/:id/status", updateAppointmentStatusHandler(db))
+
+	// DELETE /:id -> для отмены/удаления (ранее apptRoutes.DELETE("/:id",...))
+	r.DELETE("/:id", cancelAppointmentHandler(db))
+
+	// GET / -> для получения всех записей админом (ранее apptRoutes.GET("", adminRequired(), ...))
+	// Важно, чтобы этот маршрут не конфликтовал с POST /
+	// Gin различает их по методу (GET vs POST), так что это должно быть нормально.
+	r.GET("", adminRequired(), getAllAppointmentsHandler(db))
 
 	port := ":8083"
 	log.Printf("Appointments service запущен на порту %s", port)
