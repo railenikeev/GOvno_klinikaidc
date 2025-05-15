@@ -285,7 +285,27 @@ func main() {
 		// --- КОНЕЦ ИСПРАВЛЕННОГО ПОРЯДКА ДЛЯ SCHEDULES ---
 
 		// Appointments
-		authGroup.Any("/appointments/*path", func(c *gin.Context) { proxy(c, "http://appointments:8083") })
+		authGroup.POST("/appointments", func(c *gin.Context) {
+			currentParams := c.Params
+			// Чтобы проксировать на корень сервиса appointments, c.Param("path") должен быть ""
+			// Функция proxy затем сформирует путь к сервису appointments как http://appointments:8083/
+			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}}
+			proxy(c, "http://appointments:8083")
+			c.Params = currentParams
+		})
+
+		authGroup.GET("/appointments", func(c *gin.Context) {
+			currentParams := c.Params
+			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}}
+			proxy(c, "http://appointments:8083")
+			c.Params = currentParams
+		})
+
+		authGroup.Any("/appointments/*path", func(c *gin.Context) {
+			// c.Param("path") здесь будет содержать, например, "/123/status" или "/456"
+			proxy(c, "http://appointments:8083")
+		})
+
 		// Medical Records
 		authGroup.Any("/medical_records/*path", func(c *gin.Context) { proxy(c, "http://medical_records:8084") })
 		// Payments

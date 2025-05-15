@@ -150,7 +150,9 @@ const MyAppointmentsPage: React.FC = () => {
                                     return (
                                         <TableRow key={appointment.id}>
                                             <TableCell>{appointment.date ? format(parseISO(appointment.date), 'dd.MM.yyyy', { locale: ru }) : 'N/A'}</TableCell>
-                                            <TableCell>{appointment.start_time ?? 'N/A'}</TableCell>
+                                            <TableCell>
+                                                {appointment.start_time ? format(parseISO(appointment.start_time), 'HH:mm') : 'N/A'}
+                                            </TableCell>
                                             <TableCell>{appointment.doctor_name ?? 'N/A'}</TableCell>
                                             <TableCell>{appointment.specialization_name ?? 'N/A'}</TableCell>
                                             <TableCell>
