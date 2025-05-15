@@ -1,20 +1,18 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'; // Добавлен useMemo
+// my-clinic-app/src/pages/doctor/ManageSchedulePage.tsx
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-// Удалили addDays, т.к. generateMockSlots удалена
 import { format, parse, isValid, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import axios from 'axios'; // Оставили axios для isAxiosError
-// Удалили импорт иконок
+import axios from 'axios';
 
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-// Удалили FormDescription
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,7 +21,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Toaster, toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Тип для слота
 interface ScheduleSlot {
     id: number;
     doctor_id: number;
@@ -33,26 +30,30 @@ interface ScheduleSlot {
     is_available: boolean;
 }
 
-// УДАЛЕНЫ: MOCK_DOCTORS и generateMockSlots
-
-// Схема валидации для формы добавления слота
 const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/;
 const addSlotSchema = z.object({
     date: z.date({ required_error: "Выберите дату." }),
     startTime: z.string().regex(timeRegex, { message: "Формат ЧЧ:ММ" }),
     endTime: z.string().regex(timeRegex, { message: "Формат ЧЧ:ММ" }),
 }).refine(data => {
+    if (!data.startTime || !data.endTime) return false;
     const start = parse(data.startTime, 'HH:mm', new Date());
     const end = parse(data.endTime, 'HH:mm', new Date());
     return isValid(start) && isValid(end) && end > start;
 }, { message: "Время окончания должно быть позже времени начала", path: ["endTime"], });
+
 type AddSlotFormValues = z.infer<typeof addSlotSchema>;
 
-
 const ManageSchedulePage: React.FC = () => {
-    // ... (существующие состояния: user, mySlots, isLoading, error, deletingSlotId, isAlertOpen, slotToDelete) ...
-    // Добавим состояние для общей блокировки операций
+    const { user } = useAuth();
+
+    const [mySlots, setMySlots] = useState<ScheduleSlot[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState<boolean>(false);
+    const [slotToDelete, setSlotToDelete] = useState<ScheduleSlot | null>(null);
+    const [isAlertOpen, setIsAlertOpen] = useState(false);
+    // const [deletingSlotId, setDeletingSlotId] = useState<number | null>(null); // Заменено на isProcessing
 
     const form = useForm<AddSlotFormValues>({
         resolver: zodResolver(addSlotSchema),
@@ -60,18 +61,53 @@ const ManageSchedulePage: React.FC = () => {
     });
 
     const fetchMySlots = useCallback(async () => {
-        // ... (существующий код fetchMySlots, убедитесь, что toast.error вызывается при ошибке)
-        // Устанавливаем setIsLoading(false) в finally
-    }, []); // Зависимости как есть
+        setIsLoading(true);
+        setError(null);
+        try {
+            const response = await apiClient.get<ScheduleSlot[]>('/schedules/my');
+            response.data.sort((a, b) => {
+                const dateComparison = a.date.localeCompare(b.date);
+                if (dateComparison !== 0) return dateComparison;
+                return a.start_time.localeCompare(b.start_time);
+            });
+            setMySlots(response.data || []);
+        } catch (err: any) {
+            console.error("Ошибка загрузки расписания:", err);
+            let errorMessage = "Не удалось загрузить ваше расписание.";
+            if (axios.isAxiosError(err) && err.response) {
+                if (err.response.status === 401 || err.response.status === 403) {
+                    errorMessage = "Доступ запрещен или сессия истекла.";
+                } else {
+                    errorMessage = err.response.data?.error || `Ошибка сервера (${err.response.status})`;
+                }
+            } else if (err instanceof Error) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
+            toast.error(errorMessage);
+            setMySlots([]);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
+        console.log("[ManageSchedulePage] useEffect - user:", user);
         if (user && user.role === 'doctor') {
-            fetchMySlots(); // Убрал .catch, т.к. обработка в fetchMySlots
+            fetchMySlots();
+        } else if (!user && !isLoading) {
+            setError("Необходимо авторизоваться как врач для доступа к этой странице.");
+            setIsLoading(false);
+            setMySlots([]);
+        } else if (user && user.role !== 'doctor') {
+            setError("Доступ к управлению расписанием только для врачей.");
+            setIsLoading(false);
+            setMySlots([]);
         }
-    }, [user, fetchMySlots]);
+    }, [user, fetchMySlots, isLoading]);
 
     const onAddSlotSubmit = async (data: AddSlotFormValues) => {
-        setIsProcessing(true); // Блокируем на время операции
+        setIsProcessing(true);
         const payload = {
             date: format(data.date, 'yyyy-MM-dd'),
             start_time: data.startTime,
@@ -79,26 +115,23 @@ const ManageSchedulePage: React.FC = () => {
         };
         let errorMessage = "Не удалось добавить слот.";
         try {
-            const response = await apiClient.post<ScheduleSlot>('/schedules', payload); // POST /api/schedules
-            // Бэкенд schedules/main.go CreateScheduleSlotHandler возвращает 201 и созданный слот
+            const response = await apiClient.post<ScheduleSlot>('/schedules', payload);
             if (response.status === 201 && response.data) {
                 toast.success(`Слот на ${response.data.date} ${response.data.start_time} добавлен!`);
-                form.reset({ date: undefined, startTime: '', endTime: ''}); // Сброс формы
-                await fetchMySlots(); // Обновляем список слотов
+                form.reset({ date: undefined, startTime: '', endTime: '' });
+                await fetchMySlots();
             } else {
-                // Если статус не 201 или нет данных, считаем это ошибкой
                 console.error("Ошибка добавления слота: Неожиданный ответ сервера", response);
                 errorMessage = `Неожиданный ответ сервера: ${response.status}`;
                 toast.error(errorMessage);
             }
-        } catch (error: any) { // Уточнил тип any для error
+        } catch (error: any) {
             if (axios.isAxiosError(error) && error.response) {
-                if (error.response.status === 409) { // Conflict - такой слот уже существует
-                    errorMessage = error.response.data?.error || "Такой слот уже существует или пересекается с существующим.";
-                } else if (error.response.status === 400) { // Bad Request - например, время окончания раньше начала
-                    errorMessage = error.response.data?.error || "Неверные данные слота (например, время окончания раньше начала).";
-                }
-                else {
+                if (error.response.status === 409) {
+                    errorMessage = error.response.data?.error || "Такой слот уже существует или пересекается.";
+                } else if (error.response.status === 400) {
+                    errorMessage = error.response.data?.error || "Неверные данные слота.";
+                } else {
                     errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
                 }
             } else if (error instanceof Error) {
@@ -106,7 +139,7 @@ const ManageSchedulePage: React.FC = () => {
             }
             toast.error(errorMessage);
         } finally {
-            setIsProcessing(false); // Разблокируем в любом случае
+            setIsProcessing(false);
         }
     };
 
@@ -119,40 +152,31 @@ const ManageSchedulePage: React.FC = () => {
         setIsAlertOpen(true);
     };
 
-    // ИСПРАВЛЯЕМ ЭТУ ФУНКЦИЮ
     const handleDeleteConfirm = async () => {
         if (!slotToDelete) return;
-
-        setIsProcessing(true); // Используем общее состояние блокировки
-        // setDeletingSlotId(slotToDelete.id); // Можно убрать, если isProcessing достаточно
-        setIsAlertOpen(false); // Закрываем диалог
-
+        setIsProcessing(true);
+        setIsAlertOpen(false);
         let errorMessage = "Не удалось удалить слот.";
         try {
-            // Используем реальный API вызов
-            const response = await apiClient.delete(`/schedules/${slotToDelete.id}`); // DELETE /api/schedules/:id
-
-            // Бэкенд schedules/main.go DeleteScheduleSlotHandler возвращает 204 No Content при успехе
+            const response = await apiClient.delete(`/schedules/${slotToDelete.id}`);
             if (response.status === 204) {
                 toast.success(`Слот ${slotToDelete.date} ${slotToDelete.start_time} успешно удален.`);
-                await fetchMySlots(); // Обновляем список слотов
+                await fetchMySlots();
             } else {
-                // Если статус не 204, это неожиданный ответ
                 console.warn("Неожиданный ответ при удалении слота:", response);
                 errorMessage = `Неожиданный ответ сервера: ${response.status}`;
                 toast.error(errorMessage);
             }
-        } catch (error: any) { // Уточнил тип any для error
+        } catch (error: any) {
             console.error("Ошибка удаления слота:", error);
             if (axios.isAxiosError(error) && error.response) {
-                if (error.response.status === 409) { // Conflict - слот занят
+                if (error.response.status === 409) {
                     errorMessage = error.response.data?.error || "Нельзя удалить занятый слот.";
-                } else if (error.response.status === 404) { // Not Found
-                    errorMessage = error.response.data?.error || "Слот не найден (возможно, уже удален).";
-                } else if (error.response.status === 403) { // Forbidden
-                    errorMessage = error.response.data?.error || "Доступ запрещен к удалению этого слота.";
-                }
-                else {
+                } else if (error.response.status === 404) {
+                    errorMessage = error.response.data?.error || "Слот не найден.";
+                } else if (error.response.status === 403) {
+                    errorMessage = error.response.data?.error || "Доступ запрещен.";
+                } else {
                     errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
                 }
             } else if (error instanceof Error) {
@@ -160,24 +184,31 @@ const ManageSchedulePage: React.FC = () => {
             }
             toast.error(errorMessage);
         } finally {
-            setIsProcessing(false); // Разблокируем
-            // setDeletingSlotId(null); // Можно убрать
-            setSlotToDelete(null); // Сбрасываем слот для удаления
+            setIsProcessing(false);
+            setSlotToDelete(null);
         }
     };
 
     const groupedExistingSlots = useMemo(() => {
-        // ... (существующий код) ...
+        return mySlots.reduce((acc, slot) => {
+            (acc[slot.date] = acc[slot.date] || []).push(slot);
+            return acc;
+        }, {} as Record<string, ScheduleSlot[]>);
     }, [mySlots]);
 
-
-    if (isLoading && mySlots.length === 0) { // Показываем только при первой загрузке
+    if (isLoading && mySlots.length === 0) {
         return <div className="container mx-auto p-4">Загрузка расписания...</div>;
     }
 
-    // Если есть ошибка и слоты не загружены
     if (error && mySlots.length === 0) {
-        return <div className="container mx-auto p-4 text-red-500">{error}</div>;
+        return (
+            <div className="container mx-auto p-4">
+                <p className="text-red-500">{error}</p>
+                <Button variant="outline" asChild className="mt-4">
+                    <Link to="/">Назад к панели</Link>
+                </Button>
+            </div>
+        );
     }
 
     return (
@@ -191,67 +222,70 @@ const ManageSchedulePage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Форма добавления слота */}
                 <div className="lg:col-span-1">
                     <Card>
-                        <CardHeader>
-                            <CardTitle>Добавить новый слот</CardTitle>
-                        </CardHeader>
+                        <CardHeader><CardTitle>Добавить новый слот</CardTitle></CardHeader>
                         <CardContent>
                             <Form {...form}>
                                 <form onSubmit={form.handleSubmit(onAddSlotSubmit)} className="space-y-4">
-                                    {/* ... (поля формы Date, StartTime, EndTime без изменений) ... */}
-                                    {/* Поле Date */}
-                                    <FormField control={form.control} name="date" render={({ field }) => (
-                                        <FormItem className="flex flex-col">
-                                            <FormLabel>Дата</FormLabel>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <FormControl>
-                                                        <Button
-                                                            variant={"outline"}
-                                                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                                                            disabled={isProcessing}
-                                                        >
-                                                            {field.value ? format(field.value, "PPP", { locale: ru }) : <span>Выберите дату</span>}
-                                                        </Button>
-                                                    </FormControl>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0" align="start">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={field.value}
-                                                        onSelect={field.onChange}
-                                                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || isProcessing}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )} />
-                                    {/* Время начала */}
-                                    <FormField control={form.control} name="startTime" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Время начала (ЧЧ:ММ)</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="09:00" {...field} disabled={isProcessing} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )} />
-                                    {/* Время окончания */}
-                                    <FormField control={form.control} name="endTime" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Время окончания (ЧЧ:ММ)</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="09:30" {...field} disabled={isProcessing} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )} />
+                                    {/* Поля формы ВОССТАНОВЛЕНЫ */}
+                                    <FormField
+                                        control={form.control}
+                                        name="date"
+                                        render={({ field }) => (
+                                            <FormItem className="flex flex-col">
+                                                <FormLabel>Дата</FormLabel>
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <FormControl>
+                                                            <Button
+                                                                variant={"outline"}
+                                                                className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                                                                disabled={isProcessing}
+                                                            >
+                                                                {field.value ? format(field.value, "PPP", { locale: ru }) : <span>Выберите дату</span>}
+                                                            </Button>
+                                                        </FormControl>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0" align="start">
+                                                        <Calendar
+                                                            mode="single"
+                                                            selected={field.value}
+                                                            onSelect={field.onChange}
+                                                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || isProcessing}
+                                                            initialFocus
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )} />
+                                    <FormField
+                                        control={form.control}
+                                        name="startTime"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Время начала (ЧЧ:ММ)</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="09:00" {...field} disabled={isProcessing} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )} />
+                                    <FormField
+                                        control={form.control}
+                                        name="endTime"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Время окончания (ЧЧ:ММ)</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="09:30" {...field} disabled={isProcessing} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )} />
                                     <Button type="submit" className="w-full" disabled={isProcessing || form.formState.isSubmitting}>
-                                        {isProcessing ? 'Обработка...' : 'Добавить слот'}
+                                        {(isProcessing && form.formState.isSubmitting) ? 'Добавление...' : 'Добавить слот'}
                                     </Button>
                                 </form>
                             </Form>
@@ -259,7 +293,6 @@ const ManageSchedulePage: React.FC = () => {
                     </Card>
                 </div>
 
-                {/* Список существующих слотов */}
                 <div className="lg:col-span-2">
                     <Card>
                         <CardHeader>
@@ -267,19 +300,19 @@ const ManageSchedulePage: React.FC = () => {
                             <CardDescription>Список добавленных вами временных слотов.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {isLoading && mySlots.length > 0 && <p>Обновление списка...</p> /* Показываем при перезагрузке */}
-                            {!isLoading && mySlots.length === 0 && !error && ( // Если не грузится, слотов нет и ошибки нет
+                            {isLoading && mySlots.length > 0 && <p>Обновление списка...</p>}
+                            {!isLoading && mySlots.length === 0 && !error && (
                                 <p>У вас еще нет добавленных слотов.</p>
                             )}
                             {mySlots.length > 0 && (
                                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                                    {Object.entries(groupedExistingSlots).map(([date, slots]) => (
+                                    {Object.entries(groupedExistingSlots).map(([date, slotsOnDate]) => ( // переименовал slots в slotsOnDate
                                         <div key={date}>
                                             <h3 className="font-semibold mb-2 text-lg">
                                                 {format(parseISO(date), 'd MMMM<y_bin_46>, EEEE', { locale: ru })}
                                             </h3>
                                             <div className="flex flex-wrap items-center gap-2">
-                                                {slots.map((slot: ScheduleSlot) => (
+                                                {slotsOnDate.map((slot: ScheduleSlot) => ( // используем slotsOnDate
                                                     <div key={slot.id} className="flex items-center gap-1">
                                                         <Badge variant={slot.is_available ? 'outline' : 'secondary'}>
                                                             {slot.start_time} - {slot.end_time} {!slot.is_available ? '(Занят)' : ''}
@@ -291,31 +324,29 @@ const ManageSchedulePage: React.FC = () => {
                                                                     if (!open) {
                                                                         setIsAlertOpen(false);
                                                                         setSlotToDelete(null);
+                                                                    } else {
+                                                                        setIsAlertOpen(open);
+                                                                        // setSlotToDelete(slot) // Управляется через handleDeleteClick
                                                                     }
-                                                                    // setIsAlertOpen(open) // Можно и так, но сброс slotToDelete важен
                                                                 }}
                                                             >
                                                                 <AlertDialogTrigger asChild>
                                                                     <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
+                                                                        variant="ghost" size="icon"
                                                                         className="h-5 w-5 text-muted-foreground hover:text-destructive"
-                                                                        onClick={(e) => { e.stopPropagation(); handleDeleteClick(slot); }}
-                                                                        disabled={isProcessing} // Общая блокировка
+                                                                        onClick={() => handleDeleteClick(slot)}
+                                                                        disabled={isProcessing}
                                                                         aria-label="Удалить слот"
                                                                     >
-                                                                        {isProcessing && slotToDelete?.id === slot.id ? ( <span className="animate-spin text-xs">...</span> ) : ( <span className="font-bold">X</span> )}
+                                                                        {(isProcessing && slotToDelete?.id === slot.id) ? (<span className="animate-spin text-xs">...</span>) : (<span className="font-bold">X</span>)}
                                                                     </Button>
                                                                 </AlertDialogTrigger>
-                                                                {/* Контент диалога показывается только если slotToDelete соответствует этому слоту */}
                                                                 {isAlertOpen && slotToDelete?.id === slot.id && (
                                                                     <AlertDialogContent>
                                                                         <AlertDialogHeader>
                                                                             <AlertDialogTitle>Подтвердить удаление</AlertDialogTitle>
                                                                             <AlertDialogDescription>
-                                                                                Вы уверены, что хотите удалить слот
-                                                                                <span className="font-semibold"> {slotToDelete?.date} {slotToDelete?.start_time}</span>?
-                                                                                Это действие необратимо.
+                                                                                Вы уверены, что хотите удалить слот <span className="font-semibold">{slotToDelete?.date} {slotToDelete?.start_time}</span>? Это действие необратимо.
                                                                             </AlertDialogDescription>
                                                                         </AlertDialogHeader>
                                                                         <AlertDialogFooter>
