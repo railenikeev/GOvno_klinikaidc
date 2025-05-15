@@ -180,6 +180,7 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 
 func main() {
 	r := gin.Default()
+	r.RedirectTrailingSlash = false
 	corsConfig := cors.Config{
 		AllowOrigins: []string{"*"}, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
@@ -226,7 +227,17 @@ func main() {
 		authGroup.PUT("/me", usersProxyHandler("/me"))
 
 		// Schedules
-		authGroup.Any("/schedules/*path", func(c *gin.Context) { proxy(c, "http://schedules:8082") })
+		authGroup.Any("/schedules/*path", func(c *gin.Context) {
+			proxy(c, "http://schedules:8082")
+		})
+
+		authGroup.POST("/schedules", func(c *gin.Context) {
+			// Устанавливаем path в "/" для proxy, так как это корень сервиса schedules
+			// или "" если ваш proxy корректно обрабатывает это в "/"
+			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}} // proxy сделает из этого "/"
+			proxy(c, "http://schedules:8082")
+		})
+
 		// Appointments
 		authGroup.Any("/appointments/*path", func(c *gin.Context) { proxy(c, "http://appointments:8083") })
 		// Medical Records
