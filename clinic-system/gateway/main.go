@@ -223,6 +223,7 @@ func main() {
 		// Users (Admin - PATCH/DELETE)
 		authGroup.PATCH("/users/*path", usersProxyHandler("/users"))
 		authGroup.DELETE("/users/*path", usersProxyHandler("/users"))
+		authGroup.PUT("/me", usersProxyHandler("/me"))
 
 		// Schedules
 		authGroup.Any("/schedules/*path", func(c *gin.Context) { proxy(c, "http://schedules:8082") })

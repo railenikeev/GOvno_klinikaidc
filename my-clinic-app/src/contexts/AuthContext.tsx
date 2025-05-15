@@ -1,12 +1,17 @@
+// my-clinic-app/src/contexts/AuthContext.tsx
 import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
 import apiClient from '@/services/apiClient'; // Наш API клиент
 
-// Определяем тип для данных пользователя в контексте
-interface AuthUser {
+// Определяем тип для данных пользователя в контексте,
+// поля должны соответствовать тому, что возвращает ваш эндпоинт /api/me
+export interface AuthUser {
     id: number;
     role: string;
-    // Можно добавить другие поля, если нужно (name, email),
-    // но для базовой авторизации достаточно id и role
+    full_name: string;
+    email: string;
+    phone: string;
+    specialization_id?: number | null; // Поле может отсутствовать или быть null
+    specialization_name?: string | null; // Поле может отсутствовать или быть null
 }
 
 // Определяем тип для значения контекста
@@ -14,8 +19,9 @@ interface AuthContextType {
     token: string | null;
     user: AuthUser | null;
     isLoading: boolean; // Флаг для первоначальной загрузки/проверки токена
-    login: (token: string, user: AuthUser) => void;
+    login: (newToken: string, userDataFromLogin: { id: number; role: string }) => void; // userDataFromLogin - то, что приходит с /login
     logout: () => void;
+    updateUserAuthData: (newUserData: Partial<AuthUser>) => void; // Для обновления данных пользователя
 }
 
 // Создаем контекст с начальным значением null или дефолтным состоянием
@@ -27,62 +33,106 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-    const [token, setToken] = useState<string | null>(null);
-    const [user, setUser] = useState<AuthUser | null>(null);
-    const [isLoading, setIsLoading] = useState<boolean>(true); // Начинаем с загрузки
+    const [token, setToken] = useState<string | null>(localStorage.getItem('authToken'));
+    const [user, setUser] = useState<AuthUser | null>(() => {
+        const storedUserData = localStorage.getItem('userData');
+        try {
+            return storedUserData ? JSON.parse(storedUserData) : null;
+        } catch (error) {
+            console.error("Error parsing stored user data:", error);
+            return null;
+        }
+    });
+    const [isLoading, setIsLoading] = useState<boolean>(true);
 
     // Функция для входа
-    const login = useCallback((newToken: string, newUser: AuthUser) => {
+    const login = useCallback(async (newToken: string, userDataFromLogin: { id: number; role: string }) => {
+        localStorage.setItem('authToken', newToken);
         setToken(newToken);
-        setUser(newUser);
-        localStorage.setItem('authToken', newToken); // Сохраняем токен
-        localStorage.setItem('userData', JSON.stringify(newUser)); // Сохраняем данные юзера
-        setIsLoading(false); // Закончили "загрузку" после логина
+        apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`; // Устанавливаем токен для будущих запросов
+
+        // После успешного логина, запрашиваем полные данные пользователя с /me
+        try {
+            setIsLoading(true); // Можно установить isLoading пока получаем полные данные
+            const response = await apiClient.get<AuthUser>('/me');
+            if (response.data) {
+                setUser(response.data);
+                localStorage.setItem('userData', JSON.stringify(response.data));
+            } else {
+                // Если /me не вернул данные, используем то, что пришло с /login
+                // Это запасной вариант, в идеале /me всегда должен возвращать актуальные данные
+                const fallbackUser: AuthUser = {
+                    id: userDataFromLogin.id,
+                    role: userDataFromLogin.role,
+                    full_name: 'N/A', // Заглушки, если /me не отработал
+                    email: 'N/A',
+                    phone: 'N/A',
+                };
+                setUser(fallbackUser);
+                localStorage.setItem('userData', JSON.stringify(fallbackUser));
+            }
+        } catch (error) {
+            console.error("Ошибка получения данных пользователя после логина (/me):", error);
+            // Можно оставить пользователя с данными из login-ответа или обработать ошибку иначе
+            const fallbackUser: AuthUser = {
+                id: userDataFromLogin.id,
+                role: userDataFromLogin.role,
+                full_name: 'N/A',
+                email: 'N/A',
+                phone: 'N/A',
+            };
+            setUser(fallbackUser);
+            localStorage.setItem('userData', JSON.stringify(fallbackUser));
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
     // Функция для выхода
     const logout = useCallback(() => {
         setToken(null);
         setUser(null);
-        localStorage.removeItem('authToken'); // Удаляем токен
-        localStorage.removeItem('userData'); // Удаляем данные юзера
-        // Принудительно удаляем заголовок Authorization из дефолтных настроек apiClient, если он там остался
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('userData');
         delete apiClient.defaults.headers.common['Authorization'];
-        console.log("User logged out");
+        setIsLoading(false); // После выхода загрузка завершена
+        console.log("Пользователь вышел из системы");
     }, []);
+
+    // Функция для обновления данных пользователя в контексте и localStorage
+    const updateUserAuthData = useCallback((newUserData: Partial<AuthUser>) => {
+        setUser(prevUser => {
+            if (!prevUser) return null;
+            const updatedUser = { ...prevUser, ...newUserData };
+            localStorage.setItem('userData', JSON.stringify(updatedUser));
+            return updatedUser;
+        });
+    }, []);
+
 
     // Эффект для проверки токена при первой загрузке приложения
     useEffect(() => {
         const initializeAuth = async () => {
-            setIsLoading(true); // Устанавливаем isLoading в true в начале
             const storedToken = localStorage.getItem('authToken');
-            const storedUserData = localStorage.getItem('userData'); // Просто проверяем наличие
+            const storedUserDataString = localStorage.getItem('userData');
 
-            if (storedToken && storedUserData) { // Если есть и токен и какие-то данные юзера
+            if (storedToken) {
+                apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
                 try {
-                    // УДАЛЕНО: const parsedUser: AuthUser = JSON.parse(storedUserData);
-                    console.log("Найден токен в хранилище. Валидация...");
+                    console.log("Найден токен в хранилище. Валидация через /me...");
+                    const response = await apiClient.get<AuthUser>('/me'); // Запрос полных данных
 
-                    apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-                    const response = await apiClient.get('/me');
-
-                    if (response.status === 200 && response.data) {
-                        console.log("Токен валиден. Данные пользователя с /me:", response.data);
-                        const backendUser: AuthUser = {
-                            id: response.data.id,
-                            role: response.data.role,
-                        };
-                        setToken(storedToken);
-                        setUser(backendUser); // Используем свежие данные
-                        localStorage.setItem('userData', JSON.stringify(backendUser)); // Обновляем сторедж свежими данными
-                        console.log("Состояние Auth инициализировано из валидного токена.");
+                    if (response.data) {
+                        setUser(response.data);
+                        localStorage.setItem('userData', JSON.stringify(response.data)); // Обновляем сторедж свежими данными
+                        setToken(storedToken); // Токен валиден
+                        console.log("Состояние Auth инициализировано из валидного токена:", response.data);
                     } else {
-                        throw new Error('Некорректный ответ от /me');
+                        throw new Error('Некорректный ответ от /me при инициализации');
                     }
                 } catch (error) {
-                    console.error("Ошибка валидации токена:", error);
-                    // logout(); // logout вызовет рекурсию, если он в зависимостях
-                    // Просто очищаем состояние и сторедж напрямую
+                    console.error("Ошибка валидации токена при инициализации или получения данных /me:", error);
+                    // Если токен невалиден или /me не вернул данные, выходим из системы
                     setToken(null);
                     setUser(null);
                     localStorage.removeItem('authToken');
@@ -90,12 +140,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     delete apiClient.defaults.headers.common['Authorization'];
                 }
             }
-            // Не нашли токен или данные в сторедже, или они были невалидны
-            setIsLoading(false); // Завершаем загрузку в любом случае
+            setIsLoading(false); // Завершаем начальную загрузку/проверку
         };
 
         initializeAuth();
-        // Убираем logout из зависимостей, чтобы избежать рекурсии при очистке токена внутри эффекта
     }, []); // Пустой массив зависимостей - выполняется один раз при монтировании
 
     // Формируем значение контекста
@@ -105,6 +153,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isLoading,
         login,
         logout,
+        updateUserAuthData,
     };
 
     return (
