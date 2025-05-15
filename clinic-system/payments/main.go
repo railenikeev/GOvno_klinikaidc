@@ -231,7 +231,7 @@ func getPaymentsHandler(db *sql.DB) gin.HandlerFunc {
 				continue
 			}
 			if paymentDate.Valid {
-				p.PaymentDate = paymentDate.Time
+				p.PaymentDate = paymentDate
 			}
 			if patientID.Valid {
 				id := int(patientID.Int64)

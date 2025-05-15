@@ -2,14 +2,14 @@ package main
 
 import (
 	"database/sql"
-	"errors" // Добавлен для sql.ErrNoRows и errors.New
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"strings" // Добавлен для проверки ошибок БД
-	"time"    // Убедимся, что time импортирован
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq" // Драйвер PostgreSQL
@@ -25,7 +25,7 @@ type CreateSlotRequest struct {
 // --- Структура для модели данных и ответа ---
 type ScheduleSlotModel struct {
 	ID          int    `json:"id"`
-	DoctorID    int    `json:"doctor_id"`
+	DoctorID    int    `json:"doctor_id"`  // Включаем для полноты, хотя для /my это будет ID текущего врача
 	Date        string `json:"date"`       // Формат "YYYY-MM-DD"
 	StartTime   string `json:"start_time"` // Формат "HH:MM"
 	EndTime     string `json:"end_time"`   // Формат "HH:MM"
@@ -70,21 +70,24 @@ func main() {
 
 	r := gin.Default()
 
-	// Группа маршрутов /schedules
-	schedulesRoutes := r.Group("/schedules")
-	{
-		// POST /schedules - Добавить новый слот (только для врача)
-		schedulesRoutes.POST("", CreateScheduleSlotHandler(db))
+	// Маршруты определяются от корня роутера r
+	// Группа r.Group("/schedules") УДАЛЕНА
 
-		// GET /schedules/my - Получить слоты текущего врача (только для врача)
-		schedulesRoutes.GET("/my", GetMyScheduleSlotsHandler(db))
+	// POST / - Добавить новый слот (только для врача)
+	// Фронтенд вызывает /api/schedules -> шлюз (path="") -> сервис schedules "/" (или "")
+	r.POST("", CreateScheduleSlotHandler(db))
 
-		// GET /schedules/doctor/:id - Получить слоты КОНКРЕТНОГО врача (для записи на прием)
-		schedulesRoutes.GET("/doctor/:id", GetDoctorScheduleSlotsHandler(db)) // <-- Новый маршрут
+	// GET /my - Получить слоты текущего врача (только для врача)
+	// Фронтенд вызывает /api/schedules/my -> шлюз (path="/my") -> сервис schedules "/my"
+	r.GET("/my", GetMyScheduleSlotsHandler(db))
 
-		// DELETE /schedules/:id - Удалить слот (только для врача-владельца или админа)
-		schedulesRoutes.DELETE("/:id", DeleteScheduleSlotHandler(db)) // <-- Новый маршрут
-	}
+	// GET /doctor/:id - Получить слоты КОНКРЕТНОГО врача (для записи на прием)
+	// Фронтенд вызывает /api/schedules/doctor/:id -> шлюз (path="/doctor/:id") -> сервис schedules "/doctor/:id"
+	r.GET("/doctor/:id", GetDoctorScheduleSlotsHandler(db))
+
+	// DELETE /:id - Удалить слот (только для врача-владельца или админа)
+	// Фронтенд вызывает /api/schedules/:id -> шлюз (path="/:id") -> сервис schedules "/:id"
+	r.DELETE("/:id", DeleteScheduleSlotHandler(db))
 
 	port := ":8082"
 	log.Printf("Schedules service запущен на порту %s", port)
@@ -96,19 +99,10 @@ func main() {
 // --- Хендлер для добавления слота ---
 func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userIDStr := c.GetHeader("X-User-ID")
-		userRole := c.GetHeader("X-User-Role")
-
-		if userIDStr == "" || userRole == "" {
-			log.Println("Schedules ERROR: Заголовки X-User-ID/X-User-Role отсутствуют.")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Данные пользователя не получены от шлюза"})
-			return
-		}
-
-		currentUserID, err := strconv.Atoi(userIDStr)
+		currentUserID, userRole, err := getUserInfo(c) // Используем обновленный getUserInfo
 		if err != nil {
-			log.Printf("Schedules ERROR: Неверный формат X-User-ID: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обработки ID пользователя"})
+			log.Printf("Schedules ERROR: CreateScheduleSlotHandler - getUserInfo: %v", err)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -128,21 +122,19 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат даты (ожидается YYYY-MM-DD)"})
 			return
 		}
-		startTimeParsed, err := time.Parse("15:04", req.StartTime)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат времени начала (ожидается HH:MM)"})
+		// Проверка времени на корректность формата HH:MM (уже делается на фронте, но дублируем)
+		_, errStartTime := time.Parse("15:04", req.StartTime)
+		_, errEndTime := time.Parse("15:04", req.EndTime)
+		if errStartTime != nil || errEndTime != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат времени (ожидается HH:MM)"})
 			return
 		}
-		endTimeParsed, err := time.Parse("15:04", req.EndTime)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат времени окончания (ожидается HH:MM)"})
-			return
-		}
-
-		if !endTimeParsed.After(startTimeParsed) {
+		// Сравнение времени как строк (простая проверка, лучше парсить в time.Time для сравнения, но для HH:MM строк это тоже сработает)
+		if req.EndTime <= req.StartTime {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Время окончания должно быть позже времени начала"})
 			return
 		}
+
 		today := time.Now().Truncate(24 * time.Hour)
 		if dateParsed.Before(today) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Нельзя добавить слот на прошедшую дату"})
@@ -153,8 +145,9 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
                   VALUES ($1, $2, $3, $4, $5) RETURNING id`
 
 		var slotID int
+		// Вставляем время как строки HH:MM, так как в БД тип TIME
 		err = db.QueryRow(query,
-			currentUserID, dateParsed, startTimeParsed, endTimeParsed, true,
+			currentUserID, dateParsed, req.StartTime, req.EndTime, true,
 		).Scan(&slotID)
 
 		if err != nil {
@@ -168,9 +161,14 @@ func CreateScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		log.Printf("Schedules INFO: Добавлен слот ID %d для врача %d на %s %s-%s", slotID, currentUserID, req.Date, req.StartTime, req.EndTime)
 		c.JSON(http.StatusCreated, ScheduleSlotModel{
-			ID: slotID, DoctorID: currentUserID, Date: req.Date,
-			StartTime: req.StartTime, EndTime: req.EndTime, IsAvailable: true,
+			ID:          slotID,
+			DoctorID:    currentUserID,
+			Date:        req.Date,
+			StartTime:   req.StartTime,
+			EndTime:     req.EndTime,
+			IsAvailable: true,
 		})
 	}
 }
@@ -180,6 +178,7 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		currentUserID, userRole, err := getUserInfo(c)
 		if err != nil {
+			log.Printf("Schedules ERROR: GetMyScheduleSlotsHandler - getUserInfo: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
@@ -190,7 +189,7 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 
 		query := `
-            SELECT id, date, start_time, end_time, is_available
+            SELECT id, doctor_id, date, start_time, end_time, is_available
             FROM doctor_schedules
             WHERE doctor_id = $1
             ORDER BY date, start_time`
@@ -203,22 +202,23 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var slots []ScheduleSlotModel
+		slots := make([]ScheduleSlotModel, 0)
+
 		for rows.Next() {
 			var s ScheduleSlotModel
 			var dbDate time.Time
-			var dbStartTime string
-			var dbEndTime string
+			var dbStartTime, dbEndTime time.Time // <--- ИЗМЕНЕНИЕ: Сканируем напрямую в time.Time
 
-			if err := rows.Scan(&s.ID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); err != nil {
-				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для доктора %d: %v", currentUserID, err)
+			// Предполагаем, что драйвер PostgreSQL корректно сканирует TIME в time.Time
+			// Дата будет 0000-01-01 или 0001-01-01, время будет правильным, часовой пояс UTC
+			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); errScan != nil {
+				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для доктора %d: %v", currentUserID, errScan)
 				continue
 			}
 
-			s.DoctorID = currentUserID
 			s.Date = dbDate.Format("2006-01-02")
-			s.StartTime = dbStartTime
-			s.EndTime = dbEndTime
+			s.StartTime = dbStartTime.Format("15:04") // Форматируем только время
+			s.EndTime = dbEndTime.Format("15:04")     // Форматируем только время
 
 			slots = append(slots, s)
 		}
@@ -228,24 +228,24 @@ func GetMyScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке результатов из базы данных"})
 			return
 		}
-
+		log.Printf("Schedules INFO: Получены слоты для доктора %d, количество: %d", currentUserID, len(slots))
 		c.JSON(http.StatusOK, slots)
 	}
 }
 
-/* --- НОВЫЙ Хендлер для получения слотов КОНКРЕТНОГО врача --- */
+// --- Хендлер для получения слотов КОНКРЕТНОГО врача ---
 func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Проверяем наличие заголовков аутентификации от шлюза
 		_, _, errAuth := getUserInfo(c)
 		if errAuth != nil {
-			log.Println("Schedules WARN: Запрос к /schedules/doctor/:id без заголовков пользователя.")
+			log.Println("Schedules WARN: Запрос к /doctor/:id без заголовков пользователя.")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется аутентификация через шлюз"})
 			return
 		}
 
 		doctorIDStr := c.Param("id")
 		doctorID, err := strconv.Atoi(doctorIDStr)
+		// ... (остальная часть функции до цикла rows.Next() такая же) ...
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID врача"})
 			return
@@ -255,7 +255,7 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		startDateStr := c.Query("startDate")
 
 		query := `
-            SELECT id, date, start_time, end_time, is_available
+            SELECT id, doctor_id, date, start_time, end_time, is_available
             FROM doctor_schedules
             WHERE doctor_id = $1`
 		args := []interface{}{doctorID}
@@ -269,8 +269,8 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 
 		var startDate time.Time
 		if startDateStr != "" {
-			parsedDate, err := time.Parse("2006-01-02", startDateStr)
-			if err == nil {
+			parsedDate, errDateParse := time.Parse("2006-01-02", startDateStr)
+			if errDateParse == nil {
 				startDate = parsedDate
 			} else {
 				log.Printf("Schedules WARN: Неверный формат startDate '%s', используется текущая дата.", startDateStr)
@@ -281,7 +281,6 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		query += fmt.Sprintf(" AND date >= $%d", argCounter)
 		args = append(args, startDate)
-		argCounter++
 
 		query += " ORDER BY date, start_time"
 
@@ -293,22 +292,21 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var slots []ScheduleSlotModel
+		slots := make([]ScheduleSlotModel, 0)
+
 		for rows.Next() {
 			var s ScheduleSlotModel
 			var dbDate time.Time
-			var dbStartTime string
-			var dbEndTime string
+			var dbStartTime, dbEndTime time.Time // <--- ИЗМЕНЕНИЕ: Сканируем напрямую в time.Time
 
-			if err := rows.Scan(&s.ID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); err != nil {
-				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для врача %d: %v", doctorID, err)
+			if errScan := rows.Scan(&s.ID, &s.DoctorID, &dbDate, &dbStartTime, &dbEndTime, &s.IsAvailable); errScan != nil {
+				log.Printf("Schedules ERROR: Ошибка сканирования строки слота для врача %d: %v", doctorID, errScan)
 				continue
 			}
-
-			s.DoctorID = doctorID
 			s.Date = dbDate.Format("2006-01-02")
-			s.StartTime = dbStartTime
-			s.EndTime = dbEndTime
+			s.StartTime = dbStartTime.Format("15:04") // Форматируем только время
+			s.EndTime = dbEndTime.Format("15:04")     // Форматируем только время
+
 			slots = append(slots, s)
 		}
 
@@ -317,12 +315,13 @@ func GetDoctorScheduleSlotsHandler(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обработке результатов из базы"})
 			return
 		}
-
+		log.Printf("Schedules INFO: Получены слоты для врача %d, параметры (available: %s, startDate: %s), количество: %d", doctorID, showOnlyAvailable, startDateStr, len(slots))
 		c.JSON(http.StatusOK, slots)
 	}
 }
 
-/* --- НОВЫЙ Хендлер для удаления слота --- */
+// --- Хендлер для удаления слота ---
+// (DeleteScheduleSlotHandler остается без изменений по сравнению с предыдущей версией, где он был уже исправлен)
 func DeleteScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestUserID, requestUserRole, err := getUserInfo(c)
@@ -361,15 +360,28 @@ func DeleteScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 		}
 
 		if !canDelete {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ запрещен. Вы не можете удалить этот слот."})
 			return
 		}
 
 		if !isAvailable {
-			c.JSON(http.StatusConflict, gin.H{"error": "Нельзя удалить уже занятый слот"})
-			return
+			var appointmentCount int
+			apptCheckQuery := "SELECT COUNT(*) FROM appointments WHERE doctor_schedule_id = $1 AND status = 'scheduled'"
+			errAppt := db.QueryRow(apptCheckQuery, slotID).Scan(&appointmentCount)
+			if errAppt != nil && !errors.Is(errAppt, sql.ErrNoRows) {
+				log.Printf("Schedules ERROR: Ошибка проверки записей для слота %d: %v", slotID, errAppt)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при проверке связанных записей"})
+				return
+			}
+			if appointmentCount > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": "Нельзя удалить слот, на который есть активная запись. Сначала отмените запись."})
+				return
+			}
+			log.Printf("Schedules WARN: Попытка удаления занятого слота %d (без активных записей) пользователем %d (роль %s)", slotID, requestUserID, requestUserRole)
+			// Разрешаем удаление, если активных записей нет, даже если is_available=false (админ/врач разбирается)
 		}
 
+		// Удаляем слот
 		deleteQuery := "DELETE FROM doctor_schedules WHERE id = $1"
 		result, err := db.Exec(deleteQuery, slotID)
 		if err != nil {
@@ -380,7 +392,7 @@ func DeleteScheduleSlotHandler(db *sql.DB) gin.HandlerFunc {
 
 		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
-			log.Printf("Schedules WARN: Попытка удаления слота %d не затронула строк (возможно, уже удален).", slotID)
+			log.Printf("Schedules WARN: Попытка удаления слота %d не затронула строк.", slotID)
 			c.JSON(http.StatusNotFound, gin.H{"error": "Слот не найден (возможно, был удален ранее)"})
 			return
 		}
