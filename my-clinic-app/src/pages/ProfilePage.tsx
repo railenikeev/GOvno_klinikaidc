@@ -1,5 +1,5 @@
 // my-clinic-app/src/pages/ProfilePage.tsx
-import React, { useEffect, useState }
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import apiClient from '@/services/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
