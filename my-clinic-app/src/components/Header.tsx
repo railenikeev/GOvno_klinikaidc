@@ -14,18 +14,20 @@ const Header: React.FC = () => {
     };
 
     return (
+        // ВНЕШНИЙ ТЕГ <header> - отвечает за фон и позиционирование на всю ширину
         <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-14 max-w-screen-2xl items-center">
+            {/* ВНУТРЕННИЙ DIV - отвечает за центрирование и ограничение ширины КОНТЕНТА хедера */}
+            <div className="container mx-auto flex h-14 max-w-screen-2xl items-center"> {/* max-w-screen-2xl можно настроить или убрать, если container уже настроен в tailwind.config.js */}
                 <Link to="/" className="mr-6 flex items-center space-x-2">
-                    {/* Можно добавить SVG логотип или иконку клиники */}
                     <ShieldCheck className="h-6 w-6 text-primary" />
                     <span className="font-bold sm:inline-block text-primary">
-            Онлайн-Клиника
-          </span>
+                        Онлайн-Клиника
+                    </span>
                 </Link>
-                <nav className="flex flex-1 items-center space-x-4 lg:space-x-6">
+                <nav className="flex flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-6 overflow-x-auto whitespace-nowrap"> {/* Добавлены классы для адаптивности навигации */}
+                    {/* Ссылка "Главная" теперь ведет на /dashboard если пользователь авторизован, иначе на / */}
                     <Link
-                        to="/"
+                        to={user ? "/dashboard" : "/"}
                         className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
                     >
                         <Home className="inline-block h-4 w-4 mr-1 mb-0.5" />
@@ -86,7 +88,7 @@ const Header: React.FC = () => {
 
                     {user && user.role === 'admin' && (
                         <Link
-                            to="/" // Дашборд администратора
+                            to="/dashboard" // Дашборд администратора
                             className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
                         >
                             <LayoutDashboard className="inline-block h-4 w-4 mr-1 mb-0.5" />
@@ -95,26 +97,26 @@ const Header: React.FC = () => {
                     )}
                 </nav>
 
-                <div className="flex flex-1 items-center justify-end space-x-2">
+                <div className="flex items-center justify-end space-x-2 ml-auto"> {/* Убрал flex-1, добавил ml-auto */}
                     {user ? (
                         <>
                             {user.role === 'patient' && (
                                 <Link to="/notifications">
-                                    <Button variant="ghost" size="icon">
+                                    <Button variant="ghost" size="icon" aria-label="Уведомления">
                                         <Bell className="h-5 w-5" />
                                         <span className="sr-only">Уведомления</span>
                                     </Button>
                                 </Link>
                             )}
                             <Link to="/profile">
-                                <Button variant="ghost" size="sm">
-                                    <UserCircle className="h-5 w-5 mr-2" />
-                                    {user.full_name || 'Профиль'}
+                                <Button variant="ghost" size="sm" className="px-2 sm:px-3"> {/* Адаптивные отступы */}
+                                    <UserCircle className="h-5 w-5 sm:mr-2" />
+                                    <span className="hidden sm:inline">{user.full_name || 'Профиль'}</span>
                                 </Button>
                             </Link>
-                            <Button variant="outline" size="sm" onClick={handleLogout}>
-                                <LogOut className="h-4 w-4 mr-2" />
-                                Выйти
+                            <Button variant="outline" size="sm" onClick={handleLogout} className="px-2 sm:px-3">
+                                <LogOut className="h-4 w-4 sm:mr-2" />
+                                <span className="hidden sm:inline">Выйти</span>
                             </Button>
                         </>
                     ) : (

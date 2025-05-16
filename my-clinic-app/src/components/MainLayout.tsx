@@ -9,22 +9,21 @@ interface MainLayoutProps {
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     return (
         <div className="flex flex-col min-h-screen bg-background text-foreground">
+            {/* Header должен быть вне container mx-auto, если его фон должен быть на всю ширину */}
             <Header />
-            {/*
-        Добавляем flex flex-col к <main>, чтобы, если children тоже flex, они корректно работали.
-        py-8 (или py-12, py-16) добавляет вертикальные отступы сверху и снизу основного контента.
-        Увеличим их, чтобы контент не "прилипал", если его мало.
-      */}
-            <main className="flex-grow container mx-auto px-4 py-12 sm:px-6 lg:px-8 flex flex-col">
+
+            {/* Основной контент страницы */}
+            <main className="flex-grow w-full container mx-auto px-4 py-8 md:py-12 flex flex-col">
                 {/*
-          Добавим обертку для children, которая может помочь с центрированием,
-          если на странице мало контента.
-          Если контента много, она просто растянется.
+          Эта обертка гарантирует, что дочерние элементы (ваша страница)
+          могут использовать flex-свойства и занимать доступную ширину контейнера.
         */}
-                <div className="flex-grow flex flex-col w-full"> {/* w-full чтобы занимать ширину контейнера */}
+                <div className="flex-1 flex flex-col w-full">
                     {children}
                 </div>
             </main>
+
+            {/* Footer должен быть вне container mx-auto, если его фон должен быть на всю ширину */}
             <Footer />
         </div>
     );
