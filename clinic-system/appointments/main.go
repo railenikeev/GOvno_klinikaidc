@@ -39,6 +39,14 @@ type UpdateAppointmentStatusRequest struct {
 	Status string `json:"status" binding:"required,oneof=scheduled completed cancelled"`
 }
 
+type DocumentableAppointmentInfo struct {
+	ID        int    `json:"id"`         // appointments.id
+	Date      string `json:"date"`       // doctor_schedules.date (YYYY-MM-DD)
+	StartTime string `json:"start_time"` // doctor_schedules.start_time (HH:MM)
+	// Можно добавить patient_name или doctor_name, если это будет полезно на фронте при выборе,
+	// но основная информация о пациенте уже есть на странице PatientRecordPage.
+}
+
 // --- Хелперы ---
 func getUserInfo(c *gin.Context) (userID int, userRole string, err error) {
 	idStr := c.GetHeader("X-User-ID")
@@ -115,6 +123,7 @@ func main() {
 	// Важно, чтобы этот маршрут не конфликтовал с POST /
 	// Gin различает их по методу (GET vs POST), так что это должно быть нормально.
 	r.GET("", adminRequired(), getAllAppointmentsHandler(db))
+	r.GET("/doctor/for-documentation", getDocumentableAppointmentsHandler(db))
 
 	port := ":8083"
 	log.Printf("Appointments service запущен на порту %s", port)
@@ -539,5 +548,99 @@ func getAllAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, appointments)
+	}
+}
+
+func getDocumentableAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		doctorID, userRole, err := getUserInfo(c) // Получаем ID текущего врача
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+
+		if userRole != "doctor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Доступ разрешен только врачам"})
+			return
+		}
+
+		patientIDStr := c.Query("patient_id")
+		if patientIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Необходимо указать patient_id"})
+			return
+		}
+		patientID, err := strconv.Atoi(patientIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат patient_id"})
+			return
+		}
+
+		query := `
+            SELECT
+                a.id,
+                ds.date,
+                ds.start_time
+            FROM
+                appointments a
+            JOIN
+                doctor_schedules ds ON a.doctor_schedule_id = ds.id
+            LEFT JOIN
+                medical_records mr ON a.id = mr.appointment_id
+            WHERE
+                ds.doctor_id = $1       -- Приемы этого врача
+                AND a.patient_id = $2   -- Для этого пациента
+                AND a.status = 'completed' -- Только завершенные приемы
+                AND mr.appointment_id IS NULL -- И для которых еще нет медицинской записи
+            ORDER BY
+                ds.date DESC, ds.start_time DESC;
+        `
+
+		rows, err := db.Query(query, doctorID, patientID)
+		if err != nil {
+			log.Printf("Appointments ERROR: Ошибка БД (getDocumentableAppointments для doctor %d, patient %d): %v", doctorID, patientID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при получении списка приемов"})
+			return
+		}
+		defer rows.Close()
+
+		var documentableAppointments []DocumentableAppointmentInfo
+
+		for rows.Next() {
+			var apptInfo DocumentableAppointmentInfo
+			var dbDate time.Time
+			var dbStartTime time.Time // Сканируем как time.Time, если в БД тип TIME
+
+			// Важно: PostgreSQL TIME тип может быть считан как строка 'HH:MI:SS' или как time.Time
+			// Если вы сканируете напрямую в string для start_time, убедитесь, что тип в БД позволяет это без ошибок.
+			// Если db.Query возвращает time.Time для start_time, то нужно будет форматировать.
+			// Для простоты предположим, что start_time в БД это TIME и pq драйвер его корректно вернет как строку или time.Time,
+			// которое можно отформатировать. Я покажу вариант с форматированием из time.Time.
+
+			// Если start_time это строка в БД (например, VARCHAR):
+			// errScan := rows.Scan(&apptInfo.ID, &dbDate, &apptInfo.StartTime)
+			// Если start_time это TIME в БД:
+			errScan := rows.Scan(&apptInfo.ID, &dbDate, &dbStartTime)
+
+			if errScan != nil {
+				log.Printf("Appointments ERROR: Ошибка сканирования (getDocumentableAppointments): %v", errScan)
+				continue
+			}
+			apptInfo.Date = dbDate.Format("2006-01-02")
+			apptInfo.StartTime = dbStartTime.Format("15:04") // Форматируем HH:MM
+
+			documentableAppointments = append(documentableAppointments, apptInfo)
+		}
+
+		if err = rows.Err(); err != nil {
+			log.Printf("Appointments ERROR: Ошибка итерации (getDocumentableAppointments): %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при обработке списка приемов"})
+			return
+		}
+
+		if documentableAppointments == nil { // Если не было найдено ни одной записи
+			documentableAppointments = []DocumentableAppointmentInfo{} // Возвращаем пустой массив, а не null
+		}
+
+		c.JSON(http.StatusOK, documentableAppointments)
 	}
 }
