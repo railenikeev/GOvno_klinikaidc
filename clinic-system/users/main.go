@@ -17,8 +17,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-/* ──────────────── Модели ──────────────── */
-
 type User struct {
 	ID                 int     `json:"id"`
 	FullName           string  `json:"full_name"`
