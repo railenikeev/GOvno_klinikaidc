@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO, isFuture } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Trash2, CheckCircle2 } from 'lucide-react'; // Добавил иконку CheckCircle2
+import { Trash2, CheckCircle2 } from 'lucide-react';
 import axios from 'axios';
 
 import apiClient from '@/services/apiClient';
@@ -178,11 +178,6 @@ const ViewAllAppointmentsPage: React.FC = () => {
             toast.info("Можно завершить только запланированные записи.");
             return;
         }
-        // Можно добавить проверку на прошедшую дату, если нужно
-        // if (appt.date && isFuture(parseISO(appt.date))) {
-        //     toast.info("Нельзя завершить будущую запись.");
-        //     return;
-        // }
         setCompletingAppointment(appt);
         setIsCompletingDialogOpen(true);
     };
@@ -193,7 +188,6 @@ const ViewAllAppointmentsPage: React.FC = () => {
         setIsCompletingDialogOpen(false);
         let errorMessage = "Не удалось завершить запись.";
         try {
-            // Используем PATCH /api/appointments/:id/status
             await apiClient.patch(`/appointments/${completingAppointment.id}/status`, { status: 'completed' });
             toast.success(`Запись #${completingAppointment.id} успешно завершена.`);
             await fetchAllAppointments(filterPatientId, filterDoctorId);
@@ -210,7 +204,6 @@ const ViewAllAppointmentsPage: React.FC = () => {
             setCompletingAppointment(null);
         }
     };
-
 
     if (authIsLoading || (isLoading && appointments.length === 0 && !error)) {
         return <div className="container mx-auto p-4 text-center">Загрузка данных...</div>;
@@ -255,7 +248,8 @@ const ViewAllAppointmentsPage: React.FC = () => {
                             <SelectContent>
                                 <SelectGroup>
                                     <SelectLabel>Пациенты</SelectLabel>
-                                    {patients.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.full_name} (ID: {p.id})</SelectItem>)}
+                                    {/* Убираем отображение ID из текста опции */}
+                                    {patients.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.full_name}</SelectItem>)}
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -270,7 +264,8 @@ const ViewAllAppointmentsPage: React.FC = () => {
                             <SelectContent>
                                 <SelectGroup>
                                     <SelectLabel>Врачи</SelectLabel>
-                                    {doctors.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.full_name} (ID: {d.id})</SelectItem>)}
+                                    {/* Убираем отображение ID из текста опции */}
+                                    {doctors.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.full_name}</SelectItem>)}
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -290,14 +285,14 @@ const ViewAllAppointmentsPage: React.FC = () => {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[70px]">ID Записи</TableHead>
+                                    <TableHead className="w-[70px]">ID</TableHead> {/* Оставляем ID самой записи */}
                                     <TableHead>Дата</TableHead>
                                     <TableHead>Время</TableHead>
-                                    <TableHead>Пациент (ID)</TableHead>
-                                    <TableHead>Врач (ID)</TableHead>
+                                    <TableHead>Пациент</TableHead> {/* Убрали (ID) */}
+                                    <TableHead>Врач</TableHead>   {/* Убрали (ID) */}
                                     <TableHead>Специализация</TableHead>
                                     <TableHead>Статус</TableHead>
-                                    <TableHead className="text-right w-[120px]">Действия</TableHead> {/* Увеличил ширину для двух кнопок */}
+                                    <TableHead className="text-right w-[120px]">Действия</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -306,14 +301,15 @@ const ViewAllAppointmentsPage: React.FC = () => {
                                 ) : (
                                     appointments.map((appointment) => {
                                         const canCancel = appointment.status === 'scheduled' && appointment.date && isFuture(parseISO(appointment.date));
-                                        const canComplete = appointment.status === 'scheduled'; // Завершить можно любую запланированную
+                                        const canComplete = appointment.status === 'scheduled';
                                         return (
                                             <TableRow key={appointment.id}>
                                                 <TableCell className="font-mono text-xs">{appointment.id}</TableCell>
                                                 <TableCell>{appointment.date ? format(parseISO(appointment.date), 'dd.MM.yyyy', { locale: ru }) : 'N/A'}</TableCell>
                                                 <TableCell>{appointment.start_time ?? 'N/A'}</TableCell>
-                                                <TableCell>{appointment.patient_name ?? 'N/A'} ({appointment.patient_id})</TableCell>
-                                                <TableCell>{appointment.doctor_name ?? 'N/A'} ({appointment.doctor_id ?? 'N/A'})</TableCell>
+                                                {/* Убираем отображение ID пациента и врача из ячеек */}
+                                                <TableCell>{appointment.patient_name ?? `Пациент ID: ${appointment.patient_id}`}</TableCell>
+                                                <TableCell>{appointment.doctor_name ?? `Врач ID: ${appointment.doctor_id}`}</TableCell>
                                                 <TableCell>{appointment.specialization_name ?? '-'}</TableCell>
                                                 <TableCell><Badge variant={getStatusVariant(appointment.status)}>{appointment.status}</Badge></TableCell>
                                                 <TableCell className="text-right space-x-1">
