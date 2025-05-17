@@ -260,6 +260,7 @@ func main() {
 		authGroup.DELETE("/specializations/*path", makeUsersProxyHandler("/specializations")) // /api/specializations/1 -> users:8080/specializations/1
 
 		// Users
+		authGroup.GET("/users/*path", makeUsersProxyHandler("/users"))
 		authGroup.PATCH("/users/*path", makeUsersProxyHandler("/users"))  // /api/users/1 -> users:8080/users/1
 		authGroup.DELETE("/users/*path", makeUsersProxyHandler("/users")) // /api/users/1 -> users:8080/users/1
 		authGroup.PUT("/me", makeUsersProxyHandler("/me"))                // /api/me -> users:8080/me
@@ -307,7 +308,57 @@ func main() {
 		})
 
 		// Medical Records
-		authGroup.Any("/medical_records/*path", func(c *gin.Context) { proxy(c, "http://medical_records:8084") })
+		authGroup.GET("/medical_records", func(c *gin.Context) {
+			currentParams := c.Params
+			// Устанавливаем "path" для функции proxy, чтобы она использовала "/records"
+			// Используем append для создания нового среза params, чтобы не изменять исходный неожиданным образом
+			tempParams := make(gin.Params, 0, len(currentParams)+1)
+			for _, p := range currentParams {
+				if p.Key != "path" { // Копируем все параметры, кроме "path", если он там был
+					tempParams = append(tempParams, p)
+				}
+			}
+			tempParams = append(tempParams, gin.Param{Key: "path", Value: "/records"})
+			c.Params = tempParams
+
+			proxy(c, "http://medical_records:8084")
+			c.Params = currentParams // Восстанавливаем исходные параметры (на всякий случай)
+		})
+
+		// Для POST /api/medical_records (например, для создания новой записи)
+		authGroup.POST("/medical_records", func(c *gin.Context) {
+			currentParams := c.Params
+			tempParams := make(gin.Params, 0, len(currentParams)+1)
+			for _, p := range currentParams {
+				if p.Key != "path" {
+					tempParams = append(tempParams, p)
+				}
+			}
+			tempParams = append(tempParams, gin.Param{Key: "path", Value: "/records"})
+			c.Params = tempParams
+
+			proxy(c, "http://medical_records:8084")
+			c.Params = currentParams
+		})
+
+		// Для всех остальных путей /api/medical_records/* (например, /api/medical_records/:id)
+		authGroup.Any("/medical_records/*path", func(c *gin.Context) {
+			subPath := c.Param("path") // Это будет, например, "/123" или "/detail/456"
+			currentParams := c.Params
+
+			tempParams := make(gin.Params, 0, len(currentParams)+1)
+			for _, p := range currentParams {
+				if p.Key != "path" { // Копируем все параметры, кроме "path"
+					tempParams = append(tempParams, p)
+				}
+			}
+			// Устанавливаем "path" для функции proxy, чтобы она использовала "/records" + subPath
+			tempParams = append(tempParams, gin.Param{Key: "path", Value: "/records" + subPath})
+			c.Params = tempParams
+
+			proxy(c, "http://medical_records:8084")
+			c.Params = currentParams
+		})
 		// Payments
 		authGroup.Any("/payments/*path", func(c *gin.Context) { proxy(c, "http://payments:8085") })
 
