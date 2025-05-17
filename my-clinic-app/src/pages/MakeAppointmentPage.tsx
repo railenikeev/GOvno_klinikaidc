@@ -320,7 +320,7 @@ const MakeAppointmentPage: React.FC = () => {
                                     <br/>
                                     Время: <span className="font-semibold">{selectedSlot.start_time}</span>
                                     <br/>
-                                    Примерная стоимость приема: <span className="font-semibold">{MOCK_APPOINTMENT_COST} руб.</span>
+                                    Стоимость приема: <span className="font-semibold">{MOCK_APPOINTMENT_COST} руб.</span>
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
