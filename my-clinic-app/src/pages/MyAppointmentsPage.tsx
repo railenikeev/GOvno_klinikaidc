@@ -223,7 +223,6 @@ const MyAppointmentsPage: React.FC = () => {
                                                             <AlertDialogHeader>
                                                                 <AlertDialogTitle>Отменить запись?</AlertDialogTitle>
                                                                 <AlertDialogDescription>
-                                                                    {/* Отображаем дату и время корректно в диалоге */}
                                                                     Вы уверены, что хотите отменить запись к врачу
                                                                     <span className="font-semibold"> {appointment.doctor_name}</span> на
                                                                     <span className="font-semibold"> {appointment.date ? format(parseISO(appointment.date), 'dd.MM.yyyy', { locale: ru }) : ''} в {appointment.start_time}</span>?
