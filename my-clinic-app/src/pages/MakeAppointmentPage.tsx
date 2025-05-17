@@ -1,6 +1,7 @@
 // my-clinic-app/src/pages/MakeAppointmentPage.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import axios from 'axios';
@@ -20,25 +21,25 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; // Добавили RadioGroup
-import { Label } from "@/components/ui/label"; // Добавили Label
-import { Check, ChevronsUpDown, CreditCard, Home } from "lucide-react"; // Добавили иконки для оплаты
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+// WalletCards может быть более подходящей иконкой для "Наличными или картой в клинике"
+import { Check, ChevronsUpDown, CreditCard, WalletCards, CalendarCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Toaster, toast } from "sonner";
 
-// Тип для врача из API
+// ... (интерфейсы остаются такими же, как в предыдущей версии) ...
 interface Doctor {
     id: number;
     full_name: string;
     specialization_name?: string | null;
 }
 
-// Тип для слота из API (doctor_schedule)
 interface ScheduleSlot {
-    id: number; // Это doctor_schedule_id
+    id: number;
     doctor_id: number;
     date: string;
     start_time: string;
@@ -46,20 +47,24 @@ interface ScheduleSlot {
     is_available: boolean;
 }
 
-// Тип для ответа при создании записи
 interface AppointmentCreationResponse {
-    id: number; // ID созданной записи
-    // ... другие поля, если бэкенд их возвращает, но нам важен ID
+    id: number;
+    patient_id?: number;
+    doctor_schedule_id?: number;
+    status?: string;
+    created_at?: string;
+    date?: string | null;
+    start_time?: string | null;
+    doctor_name?: string | null;
 }
 
-// Тип для создания платежа
 interface PaymentPayload {
     appointment_id: number;
     amount: number;
-    // payment_status будет 'paid' или 'pending' на бэкенде
 }
 
-type PaymentMethod = "online" | "cash";
+type PaymentMethod = "online" | "cash_or_card_at_clinic";
+
 
 const MakeAppointmentPage: React.FC = () => {
     const navigate = useNavigate();
@@ -73,15 +78,13 @@ const MakeAppointmentPage: React.FC = () => {
     const [selectedSlot, setSelectedSlot] = useState<ScheduleSlot | null>(null);
     const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
 
-    const [isBooking, setIsBooking] = useState<boolean>(false);
     const [doctorPopoverOpen, setDoctorPopoverOpen] = useState(false);
 
-    const [showPaymentOptions, setShowPaymentOptions] = useState<boolean>(false);
-    const [createdAppointmentId, setCreatedAppointmentId] = useState<number | null>(null);
-    const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("cash");
-    const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false);
+    const [step, setStep] = useState<"selectSlot" | "selectPayment" | "confirmed">("selectSlot");
+    const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("cash_or_card_at_clinic");
+    const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
-    const MOCK_APPOINTMENT_COST = 1500; // Примерная стоимость приема для онлайн-оплаты
+    const MOCK_APPOINTMENT_COST = 1500;
 
     useEffect(() => {
         const fetchDoctors = async () => {
@@ -102,6 +105,7 @@ const MakeAppointmentPage: React.FC = () => {
     const fetchSlotsForDoctor = useCallback(async (doctorId: number) => {
         setSelectedSlot(null);
         setAvailableSlots([]);
+        setStep("selectSlot");
         if (!doctorId) return;
         setIsLoadingSlots(true);
         try {
@@ -127,6 +131,7 @@ const MakeAppointmentPage: React.FC = () => {
         } else {
             setAvailableSlots([]);
             setSelectedSlot(null);
+            setStep("selectSlot");
         }
     }, [selectedDoctorId, fetchSlotsForDoctor]);
 
@@ -140,89 +145,90 @@ const MakeAppointmentPage: React.FC = () => {
     const handleDoctorSelect = (doctorIdStr: string) => {
         const id = parseInt(doctorIdStr, 10);
         setSelectedDoctorId(id);
-        setShowPaymentOptions(false); // Сбрасываем опции оплаты при смене врача
+        setStep("selectSlot");
         setDoctorPopoverOpen(false);
     };
 
     const handleSlotSelect = (slot: ScheduleSlot) => {
         setSelectedSlot(slot);
-        setShowPaymentOptions(false); // Сбрасываем опции оплаты при смене слота
+        setStep("selectSlot");
     };
 
-    const handleBookingConfirm = async () => {
-        if (!selectedSlot || !user || user.role !== 'patient') {
-            toast.error("Сначала выберите врача и доступный слот, и убедитесь, что вы авторизованы как пациент.");
+    const handleProceedToPayment = () => {
+        if (!selectedSlot) {
+            toast.error("Пожалуйста, выберите время для записи.");
             return;
         }
-        setIsBooking(true);
-        let errorMessage = "Не удалось записаться на прием.";
+        setStep("selectPayment");
+    };
+
+    const handleFinalBookingAndPayment = async () => {
+        if (!selectedSlot || !user || user.role !== 'patient' || !selectedDoctor) {
+            toast.error("Произошла ошибка. Пожалуйста, проверьте выбор врача, слота и авторизацию.");
+            return;
+        }
+        setIsProcessing(true);
+        let appointmentId: number | null = null;
+        let bookingErrorMessage = "Не удалось создать запись на прием.";
+
         try {
-            const response = await apiClient.post<AppointmentCreationResponse>('/appointments', {
+            const appointmentResponse = await apiClient.post<AppointmentCreationResponse>('/appointments', {
                 doctor_schedule_id: selectedSlot.id,
             });
 
-            if (response.status === 201 && response.data && response.data.id) {
-                setCreatedAppointmentId(response.data.id);
-                setShowPaymentOptions(true); // Показываем выбор оплаты
-                toast.success(`Запись на ${selectedSlot.date} в ${selectedSlot.start_time} создана! Теперь выберите способ оплаты.`);
-                // Не перенаправляем сразу, даем выбрать способ оплаты
-            } else {
-                errorMessage = `Неожиданный ответ сервера: ${response.status}`;
-                toast.error(errorMessage);
+            if (!(appointmentResponse.status === 201 && appointmentResponse.data && appointmentResponse.data.id)) {
+                throw new Error(appointmentResponse.data?.status || `Неожиданный ответ сервера при создании записи: ${appointmentResponse.status}`);
             }
+
+            appointmentId = appointmentResponse.data.id;
+            toast.success(`Запись #${appointmentId} к врачу ${selectedDoctor.full_name} на ${selectedSlot.date} в ${selectedSlot.start_time} создана!`);
+
+            if (selectedPaymentMethod === "online") {
+                toast.info("Обработка онлайн платежа...");
+                const paymentPayload: PaymentPayload = {
+                    appointment_id: appointmentId,
+                    amount: MOCK_APPOINTMENT_COST,
+                };
+                try {
+                    await apiClient.post('/payments', paymentPayload);
+                    toast.success("Онлайн оплата прошла успешно (имитация).");
+                } catch (paymentError) {
+                    console.error("Ошибка онлайн оплаты:", paymentError);
+                    toast.error("Произошла ошибка при онлайн оплате. Запись создана, но оплата не прошла. Свяжитесь с администратором для уточнения.");
+                }
+            } else {
+                toast.info("Вы выбрали оплату наличными или картой в клинике.");
+            }
+
+            setStep("confirmed");
+            setSelectedSlot(null);
+            if (selectedDoctorId) {
+                await fetchSlotsForDoctor(selectedDoctorId);
+            }
+            setTimeout(() => {
+                navigate('/my-appointments');
+            }, 3000);
+
         } catch (error) {
-            console.error("Ошибка записи на прием:", error);
+            console.error("Ошибка при бронировании и оплате:", error);
             if (axios.isAxiosError(error) && error.response) {
-                if (error.response.status === 409) {
-                    errorMessage = error.response.data?.error || "Этот слот уже занят или недоступен. Пожалуйста, выберите другой.";
+                if (error.response.status === 409 && !appointmentId) {
+                    bookingErrorMessage = error.response.data?.error || "Этот слот уже занят или недоступен. Пожалуйста, выберите другой.";
                     if (selectedDoctorId) await fetchSlotsForDoctor(selectedDoctorId);
                 } else {
-                    errorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
+                    bookingErrorMessage = error.response.data?.error || `Ошибка сервера (${error.response.status})`;
                 }
             } else if (error instanceof Error) {
-                errorMessage = error.message;
+                bookingErrorMessage = error.message;
             }
-            toast.error(errorMessage);
+            toast.error(bookingErrorMessage);
+            if (!appointmentId) {
+                setStep("selectSlot");
+            }
         } finally {
-            setIsBooking(false);
+            setIsProcessing(false);
         }
     };
-
-    const handlePaymentProcess = async () => {
-        if (!createdAppointmentId || !selectedSlot) {
-            toast.error("Ошибка: отсутствует информация о записи для оплаты.");
-            return;
-        }
-        setIsProcessingPayment(true);
-
-        if (selectedPaymentMethod === "online") {
-            const paymentPayload: PaymentPayload = {
-                appointment_id: createdAppointmentId,
-                amount: MOCK_APPOINTMENT_COST, // Используем моковую стоимость
-            };
-            try {
-                await apiClient.post('/payments', paymentPayload);
-                toast.success("Оплата онлайн прошла успешно (имитация). Запись подтверждена!");
-            } catch (paymentError) {
-                console.error("Ошибка онлайн оплаты:", paymentError);
-                toast.error("Произошла ошибка при онлайн оплате. Запись создана, но оплата не прошла. Свяжитесь с администратором.");
-                // Запись уже создана, так что просто сообщаем об ошибке оплаты
-            }
-        } else { // Оплата на месте
-            toast.info("Вы выбрали оплату на месте. Запись подтверждена!");
-        }
-
-        // В любом случае (успешная онлайн оплата или оплата на месте) перенаправляем
-        setSelectedSlot(null);
-        setShowPaymentOptions(false);
-        setCreatedAppointmentId(null);
-        if (selectedDoctorId) {
-            await fetchSlotsForDoctor(selectedDoctorId); // Обновляем список слотов
-        }
-        setTimeout(() => navigate('/my-appointments'), 2500);
-        setIsProcessingPayment(false);
-    };
-
 
     const selectedDoctor = doctors.find(doc => doc.id === selectedDoctorId);
 
@@ -246,7 +252,7 @@ const MakeAppointmentPage: React.FC = () => {
                         <CardContent>
                             <Popover open={doctorPopoverOpen} onOpenChange={setDoctorPopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button variant="outline" role="combobox" aria-expanded={doctorPopoverOpen} className="w-full justify-between" disabled={isLoadingDoctors || doctors.length === 0}>
+                                    <Button variant="outline" role="combobox" aria-expanded={doctorPopoverOpen} className="w-full justify-between" disabled={isLoadingDoctors || doctors.length === 0 || isProcessing}>
                                         {selectedDoctor ? `${selectedDoctor.full_name} (${selectedDoctor.specialization_name || 'Общий'})` : isLoadingDoctors ? "Загрузка..." : (doctors.length === 0 ? "Нет доступных врачей" : "Выберите врача...")}
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
@@ -279,10 +285,11 @@ const MakeAppointmentPage: React.FC = () => {
                                 <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                                     {Object.entries(groupedSlots).sort(([dateA], [dateB]) => dateA.localeCompare(dateB)).map(([date, slotsOnDate]) => (
                                         <div key={date}>
-                                            <h3 className="font-semibold mb-2 text-lg">{format(parseISO(date), 'd MMMM yyyy, EEEE', { locale: ru })}</h3>
+                                            {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' для полной локализованной даты */}
+                                            <h3 className="font-semibold mb-2 text-lg">{format(parseISO(date), 'PPPP', { locale: ru })}</h3>
                                             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                                                 {slotsOnDate.sort((a,b) => a.start_time.localeCompare(b.start_time)).map((slot) => (
-                                                    <Button key={slot.id} variant={selectedSlot?.id === slot.id ? "default" : "outline"} size="sm" onClick={() => handleSlotSelect(slot)} disabled={!slot.is_available || isBooking} title={!slot.is_available ? "Слот занят" : `Записаться на ${slot.start_time}`}>
+                                                    <Button key={slot.id} variant={selectedSlot?.id === slot.id ? "default" : "outline"} size="sm" onClick={() => handleSlotSelect(slot)} disabled={!slot.is_available || isProcessing || step === "selectPayment"} title={!slot.is_available ? "Слот занят" : `Записаться на ${slot.start_time}`}>
                                                         {slot.start_time}
                                                     </Button>))}
                                             </div>
@@ -291,60 +298,80 @@ const MakeAppointmentPage: React.FC = () => {
                         </CardContent>
                     </Card>
 
-                    {selectedSlot && !showPaymentOptions && (
+                    {selectedSlot && step === "selectSlot" && (
                         <div className="mt-6 flex justify-end">
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button size="lg" disabled={isBooking || !selectedSlot.is_available}>
-                                        {isBooking ? "Запись..." : `Записаться на ${selectedSlot.start_time}`}
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Подтверждение записи</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Вы уверены, что хотите записаться к врачу <span className="font-semibold">{selectedDoctor?.full_name}</span> на <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'dd.MM.yyyy', { locale: ru }) : ''} в {selectedSlot.start_time}</span>?
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel disabled={isBooking}>Отмена</AlertDialogCancel>
-                                        <AlertDialogAction onClick={handleBookingConfirm} disabled={isBooking}>
-                                            {isBooking ? "Обработка..." : "Подтвердить и перейти к оплате"}
-                                        </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
+                            <Button size="lg" onClick={handleProceedToPayment} disabled={isProcessing}>
+                                Продолжить
+                            </Button>
                         </div>
                     )}
 
-                    {showPaymentOptions && selectedSlot && createdAppointmentId && (
-                        <Card className="mt-6">
+                    {step === "selectPayment" && selectedSlot && selectedDoctor &&(
+                        <Card className="mt-6 border-primary shadow-lg">
                             <CardHeader>
-                                <CardTitle>3. Выберите способ оплаты</CardTitle>
+                                <CardTitle className="text-primary flex items-center">
+                                    <CalendarCheck className="mr-2 h-5 w-5"/> 3. Подтверждение и Оплата
+                                </CardTitle>
                                 <CardDescription>
-                                    Запись к врачу <span className="font-semibold">{selectedDoctor?.full_name}</span> на <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'dd.MM.yyyy', { locale: ru }) : ''} в {selectedSlot.start_time}</span> создана.
-                                    Примерная стоимость приема: {MOCK_APPOINTMENT_COST} руб.
+                                    Вы выбрали запись к врачу <span className="font-semibold">{selectedDoctor.full_name}</span>
+                                    <br/>
+                                    {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' */}
+                                    Дата: <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'PPPP', { locale: ru }) : ''}</span>
+                                    <br/>
+                                    Время: <span className="font-semibold">{selectedSlot.start_time}</span>
+                                    <br/>
+                                    Примерная стоимость приема: <span className="font-semibold">{MOCK_APPOINTMENT_COST} руб.</span>
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <RadioGroup defaultValue="cash" value={selectedPaymentMethod} onValueChange={(value: PaymentMethod) => setSelectedPaymentMethod(value)} className="space-y-3 mb-4">
-                                    <div className="flex items-center space-x-2">
+                                <RadioGroup defaultValue="cash_or_card_at_clinic" value={selectedPaymentMethod} onValueChange={(value: string) => setSelectedPaymentMethod(value as PaymentMethod)} className="space-y-3 mb-6">
+                                    <Label htmlFor="online" className={cn("flex items-center space-x-3 p-3 rounded-md border hover:bg-accent cursor-pointer", selectedPaymentMethod === 'online' && "border-primary ring-2 ring-primary")}>
                                         <RadioGroupItem value="online" id="online" />
-                                        <Label htmlFor="online" className="flex items-center cursor-pointer">
-                                            <CreditCard className="mr-2 h-5 w-5 text-primary" /> Оплатить онлайн (Картой)
-                                        </Label>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="cash" id="cash" />
-                                        <Label htmlFor="cash" className="flex items-center cursor-pointer">
-                                            <Home className="mr-2 h-5 w-5 text-green-600" /> Оплатить на месте (в клинике)
-                                        </Label>
-                                    </div>
+                                        <CreditCard className="h-5 w-5 text-primary" />
+                                        <span>Оплатить онлайн (Картой)</span>
+                                    </Label>
+                                    <Label htmlFor="cash_or_card_at_clinic" className={cn("flex items-center space-x-3 p-3 rounded-md border hover:bg-accent cursor-pointer", selectedPaymentMethod === 'cash_or_card_at_clinic' && "border-primary ring-2 ring-primary")}>
+                                        <RadioGroupItem value="cash_or_card_at_clinic" id="cash_or_card_at_clinic" />
+                                        {/* Замена иконки Home на WalletCards */}
+                                        <WalletCards className="h-5 w-5 text-green-600" />
+                                        <span>Наличными или картой в клинике</span>
+                                    </Label>
                                 </RadioGroup>
-                                <Button size="lg" onClick={handlePaymentProcess} disabled={isProcessingPayment} className="w-full">
-                                    {isProcessingPayment ? "Обработка..." : "Завершить запись"}
-                                </Button>
+
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button size="lg" className="w-full" disabled={isProcessing}>
+                                            {isProcessing ? "Обработка..." : "Завершить запись"}
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Подтвердить запись?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' или 'dd.MM.yyyy' */}
+                                                Вы уверены, что хотите записаться к врачу <span className="font-semibold">{selectedDoctor?.full_name}</span> на <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'PPPP', { locale: ru }) : ''} в {selectedSlot.start_time}</span>
+                                                {selectedPaymentMethod === 'online' ? " с онлайн оплатой?" : " с оплатой наличными или картой в клинике?"}
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel disabled={isProcessing}>Отмена</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleFinalBookingAndPayment} disabled={isProcessing}>
+                                                {isProcessing ? "Обработка..." : "Да, подтвердить"}
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
                             </CardContent>
+                        </Card>
+                    )}
+                    {step === "confirmed" && (
+                        <Card className="mt-6 border-green-500 shadow-lg">
+                            <CardHeader>
+                                <CardTitle className="text-green-600 flex items-center"><Check className="mr-2 h-6 w-6"/>Запись успешно оформлена!</CardTitle>
+                                <CardDescription>
+                                    Информация о вашей записи отправлена. Вы будете перенаправлены на страницу "Мои записи".
+                                </CardDescription>
+                            </CardHeader>
                         </Card>
                     )}
                 </div>
