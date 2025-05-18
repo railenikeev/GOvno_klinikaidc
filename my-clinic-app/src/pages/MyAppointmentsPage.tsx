@@ -28,6 +28,12 @@ interface Appointment {
     doctor_schedule_id: number;
 }
 
+const statusTranslations: { [key: string]: string } = {
+    completed: 'Завершено',
+    scheduled: 'Запланировано',
+    cancelled: 'Отменено',
+};
+
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
     switch (status?.toLowerCase()) {
         case 'completed': return 'default';
@@ -209,7 +215,9 @@ const MyAppointmentsPage: React.FC = () => {
                                             <TableCell>{appointment.doctor_name ?? 'N/A'}</TableCell>
                                             <TableCell>{appointment.specialization_name ?? 'N/A'}</TableCell>
                                             <TableCell>
-                                                <Badge variant={getStatusVariant(appointment.status)}>{appointment.status}</Badge>
+                                                <Badge variant={getStatusVariant(appointment.status)}>
+                                                    {statusTranslations[appointment.status.toLowerCase()] || appointment.status}
+                                                </Badge>
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 {canCancel ? (
