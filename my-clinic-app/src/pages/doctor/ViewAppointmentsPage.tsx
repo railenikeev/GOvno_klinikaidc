@@ -29,9 +29,9 @@ interface AppointmentDoctorView {
 }
 
 const statusTranslations: { [key: string]: string } = {
-    completed: 'Завершено',
-    scheduled: 'Запланировано',
-    cancelled: 'Отменено',
+    completed: 'Завершена',
+    scheduled: 'Запланирована',
+    cancelled: 'Отменена',
 };
 
 // Варианты Badge для статуса
