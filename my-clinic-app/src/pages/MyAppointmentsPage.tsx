@@ -29,9 +29,9 @@ interface Appointment {
 }
 
 const statusTranslations: { [key: string]: string } = {
-    completed: 'Завершено',
-    scheduled: 'Запланировано',
-    cancelled: 'Отменено',
+    completed: 'Завершена',
+    scheduled: 'Запланирована',
+    cancelled: 'Отменена',
 };
 
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
