@@ -22,6 +22,12 @@ interface Appointment {
     doctor_schedule_id: number;
 }
 
+const statusTranslations: { [key: string]: string } = {
+    completed: 'Завершена',
+    scheduled: 'Запланирована',
+    cancelled: 'Отменена',
+};
+
 const DashboardPage: React.FC = () => {
     const { user } = useAuth(); // Убираем logout, он должен быть в Header.tsx
     const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -106,7 +112,9 @@ const DashboardPage: React.FC = () => {
                                                 <ul className="space-y-3">
                                                     {appointments.map((appointment) => (
                                                         <li key={appointment.id} className="p-4 border rounded-lg bg-card hover:bg-muted/60 transition-colors">
-                                                            <p className={`font-semibold text-primary-foreground ${appointment.status === 'completed' ? 'bg-green-600' : appointment.status === 'cancelled' ? 'bg-red-600' : 'bg-primary'} px-2 py-0.5 rounded-full text-xs inline-block mb-1`}>{appointment.status}</p>
+                                                            <p className={`font-semibold text-primary-foreground ${appointment.status === 'completed' ? 'bg-green-600' : appointment.status === 'cancelled' ? 'bg-red-600' : 'bg-primary'} px-2 py-0.5 rounded-full text-xs inline-block mb-1`}>
+                                                                {statusTranslations[appointment.status.toLowerCase()] || appointment.status}
+                                                            </p>
                                                             <p className="font-medium">Врач: {appointment.doctor_name ?? 'N/A'} ({appointment.specialization_name ?? 'N/A'})</p>
                                                             <p className="text-sm text-muted-foreground">Дата: {appointment.date ?? 'N/A'} Время: {appointment.start_time ? appointment.start_time.substring(0,5) : 'N/A'}</p>
                                                         </li>
@@ -155,7 +163,9 @@ const DashboardPage: React.FC = () => {
                                                     {appointments.map((appointment) => (
                                                         <li key={appointment.id} className="p-4 border rounded-lg bg-card hover:bg-muted/60 transition-colors flex flex-col sm:flex-row justify-between sm:items-center">
                                                             <div className="mb-2 sm:mb-0">
-                                                                <p className={`font-semibold text-primary-foreground ${appointment.status === 'completed' ? 'bg-green-600' : appointment.status === 'cancelled' ? 'bg-red-600' : 'bg-primary'} px-2 py-0.5 rounded-full text-xs inline-block mb-1`}>{appointment.status}</p>
+                                                                <p className={`font-semibold text-primary-foreground ${appointment.status === 'completed' ? 'bg-green-600' : appointment.status === 'cancelled' ? 'bg-red-600' : 'bg-primary'} px-2 py-0.5 rounded-full text-xs inline-block mb-1`}>
+                                                                    {statusTranslations[appointment.status.toLowerCase()] || appointment.status}
+                                                                </p>
                                                                 <p className="font-medium">Пациент: {appointment.patient_name ?? 'N/A'}</p>
                                                                 <p className="text-sm text-muted-foreground">Дата: {appointment.date ?? 'N/A'} Время: {appointment.start_time ? appointment.start_time.substring(0,5) : 'N/A'}</p>
                                                             </div>
