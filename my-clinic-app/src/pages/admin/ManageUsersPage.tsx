@@ -36,9 +36,6 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toaster, toast } from "sonner";
-// Input не используется здесь, но может понадобиться для фильтров в будущем
-// import { Input } from '@/components/ui/input';
-
 
 interface Specialization {
     id: number;
@@ -55,16 +52,22 @@ interface UserAdminView {
     specialization_name?: string | null;
 }
 
+// Объект для перевода ролей
+const roleTranslations: { [key: string]: string } = {
+    patient: 'Пациент',
+    doctor: 'Врач',
+    admin: 'Администратор',
+};
+
 const userEditSchema = z.object({
     role: z.enum(['patient', 'doctor', 'admin'], { required_error: "Выберите роль" }),
-    specializationId: z.string().optional(), // id специализации будет строкой
+    specializationId: z.string().optional(),
 }).refine(data => {
     if (data.role === 'doctor') {
-        // Если роль "doctor", specializationId должен быть непустой строкой (т.к. это ID)
         return data.specializationId && data.specializationId !== "";
     }
     return true;
-}, { message: "Для роли 'doctor' необходимо выбрать специализацию.", path: ["specializationId"] });
+}, { message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.`, path: ["specializationId"] }); // Используем перевод
 
 type UserEditFormValues = z.infer<typeof userEditSchema>;
 
@@ -85,7 +88,7 @@ const ManageUsersPage: React.FC = () => {
 
     const editForm = useForm<UserEditFormValues>({
         resolver: zodResolver(userEditSchema),
-        defaultValues: { role: 'patient', specializationId: "" } // Пустая строка для Select
+        defaultValues: { role: 'patient', specializationId: "" }
     });
     const watchedRoleInEditForm = editForm.watch('role');
 
@@ -120,7 +123,7 @@ const ManageUsersPage: React.FC = () => {
         setEditingUser(userToEdit);
         editForm.reset({
             role: userToEdit.role,
-            specializationId: userToEdit.specialization_id?.toString() ?? "", // "" для плейсхолдера если нет специализации
+            specializationId: userToEdit.specialization_id?.toString() ?? "",
         });
         setIsEditUserDialogOpen(true);
     };
@@ -148,8 +151,7 @@ const ManageUsersPage: React.FC = () => {
                     return;
                 }
             } else {
-                // Это состояние должно быть поймано zod refine, но на всякий случай
-                editForm.setError("specializationId", { type: "manual", message: "Для роли 'doctor' необходимо выбрать специализацию." });
+                editForm.setError("specializationId", { type: "manual", message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.` }); // Используем перевод
                 setIsSubmittingOperation(false);
                 return;
             }
@@ -157,7 +159,7 @@ const ManageUsersPage: React.FC = () => {
 
         const payload = {
             role: data.role,
-            specialization_id: specId, // Отправляем number | null
+            specialization_id: specId,
         };
         let toastMessage = "Не удалось обновить пользователя.";
 
@@ -214,14 +216,36 @@ const ManageUsersPage: React.FC = () => {
     };
 
     const getRoleBadgeVariant = (role: string): "default" | "secondary" | "outline" | "destructive" => {
-        // ... (остается без изменений) ...
+        switch (role) {
+            case 'admin': return 'destructive';
+            case 'doctor': return 'default';
+            case 'patient': return 'secondary';
+            default: return 'outline';
+        }
     };
 
     const renderTableContent = () => {
-        // ... (остается без изменений, но убедитесь, что использует isSubmittingOperation для disable кнопок) ...
-        if (isLoading) { /* ... */ }
-        if (error && users.length === 0) { /* ... */ }
-        if (!isLoading && users.length === 0 && !error) { /* ... */ }
+        if (isLoading) {
+            return (
+                <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center">Загрузка пользователей...</TableCell>
+                </TableRow>
+            );
+        }
+        if (error && users.length === 0) {
+            return (
+                <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center text-red-500">{error}</TableCell>
+                </TableRow>
+            );
+        }
+        if (!isLoading && users.length === 0 && !error) {
+            return (
+                <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center">Пользователи не найдены.</TableCell>
+                </TableRow>
+            );
+        }
 
         return users.map((userItem) => (
             <TableRow key={userItem.id}>
@@ -229,7 +253,11 @@ const ManageUsersPage: React.FC = () => {
                 <TableCell className="font-medium">{userItem.full_name}</TableCell>
                 <TableCell>{userItem.email}</TableCell>
                 <TableCell>{userItem.phone}</TableCell>
-                <TableCell><Badge variant={getRoleBadgeVariant(userItem.role)}>{userItem.role}</Badge></TableCell>
+                <TableCell>
+                    <Badge variant={getRoleBadgeVariant(userItem.role)}>
+                        {roleTranslations[userItem.role] || userItem.role}
+                    </Badge>
+                </TableCell>
                 <TableCell>{userItem.specialization_name ?? (userItem.role === 'doctor' ? 'Не указана' : '-')}</TableCell>
                 <TableCell className="text-right space-x-1">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(userItem)} disabled={isSubmittingOperation}>
@@ -242,7 +270,6 @@ const ManageUsersPage: React.FC = () => {
                                 setIsDeleteDialogOpen(false);
                                 setDeletingUser(null);
                             } else {
-                                // Убедимся что deletingUser установлен, если open=true (хотя это делается в handleDelete)
                                 if (!deletingUser && open) setDeletingUser(userItem)
                             }
                         }}
@@ -325,7 +352,7 @@ const ManageUsersPage: React.FC = () => {
                         <DialogTitle>Редактировать: {editingUser?.full_name}</DialogTitle>
                         <DialogDescription>Измените роль и/или специализацию пользователя.</DialogDescription>
                     </DialogHeader>
-                    {editingUser && ( // Рендерим форму только если editingUser не null
+                    {editingUser && (
                         <Form {...editForm}>
                             <form onSubmit={editForm.handleSubmit(onEditUserSubmit)} className="space-y-4 py-4">
                                 <FormField
@@ -336,16 +363,16 @@ const ManageUsersPage: React.FC = () => {
                                             <FormLabel>Роль *</FormLabel>
                                             <Select
                                                 onValueChange={field.onChange}
-                                                value={field.value} // Используем value из field
+                                                value={field.value}
                                                 disabled={isSubmittingOperation || (editingUser?.id === adminUser?.id && editingUser?.role === 'admin')}
                                             >
                                                 <FormControl>
                                                     <SelectTrigger><SelectValue placeholder="Выберите роль..." /></SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    <SelectItem value="patient">Patient</SelectItem>
-                                                    <SelectItem value="doctor">Doctor</SelectItem>
-                                                    <SelectItem value="admin" disabled={editingUser?.id === adminUser?.id && editingUser?.role !== 'admin'}>Admin</SelectItem>
+                                                    <SelectItem value="patient">{roleTranslations.patient}</SelectItem>
+                                                    <SelectItem value="doctor">{roleTranslations.doctor}</SelectItem>
+                                                    <SelectItem value="admin" disabled={editingUser?.id === adminUser?.id && editingUser?.role !== 'admin'}>{roleTranslations.admin}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                             <FormMessage />
@@ -361,7 +388,7 @@ const ManageUsersPage: React.FC = () => {
                                                 <FormLabel>Специализация *</FormLabel>
                                                 <Select
                                                     onValueChange={field.onChange}
-                                                    value={field.value} // Используем value из field
+                                                    value={field.value}
                                                     disabled={isSubmittingOperation}
                                                 >
                                                     <FormControl>
@@ -373,9 +400,6 @@ const ManageUsersPage: React.FC = () => {
                                                         {specializations.length === 0 ? (
                                                             <SelectItem value="no-specs" disabled>Нет доступных специализаций</SelectItem>
                                                         ) : (
-                                                            // Плейсхолдер (или опция "не выбрано") не нужен как отдельный SelectItem,
-                                                            // если SelectTrigger уже имеет placeholder.
-                                                            // Если значение поля пустое (""), SelectTrigger покажет placeholder.
                                                             specializations.map(spec => (
                                                                 <SelectItem key={spec.id} value={spec.id.toString()}>
                                                                     {spec.name}
@@ -384,7 +408,7 @@ const ManageUsersPage: React.FC = () => {
                                                         )}
                                                     </SelectContent>
                                                 </Select>
-                                                <FormMessage /> {/* Сюда попадет ошибка из refine или от сервера */}
+                                                <FormMessage />
                                             </FormItem>
                                         )} />
                                 )}
