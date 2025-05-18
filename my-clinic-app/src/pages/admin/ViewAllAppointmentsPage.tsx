@@ -1,5 +1,5 @@
 // my-clinic-app/src/pages/admin/ViewAllAppointmentsPage.tsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO, isFuture } from 'date-fns';
 import { ru } from 'date-fns/locale';
