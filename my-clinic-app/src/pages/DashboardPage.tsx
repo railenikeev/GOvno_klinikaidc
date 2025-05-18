@@ -241,11 +241,8 @@ const DashboardPage: React.FC = () => {
             <Toaster position="top-center" richColors closeButton />
             <div className="mb-8 text-left">
                 <h1 className="text-3xl font-bold text-foreground">
-                    {user?.role === 'admin' ? 'Панель Управления' : `Клиника "Здоровье"`}
+                    {user?.role === 'admin' ? 'Панель Управления' : ``}
                 </h1>
-                <p className="text-muted-foreground">
-                    Добро пожаловать, {user?.full_name || 'Гость'}! ({user?.role})
-                </p>
             </div>
             <div className="flex-grow flex flex-col">
                 {renderRoleSpecificContent()}
