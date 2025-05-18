@@ -50,7 +50,10 @@ function App() {
         <BrowserRouter>
             <Routes>
                 {/* Публичные маршруты и LandingPage */}
-                <Route path="/" element={<LandingPage />} /> {/* LandingPage теперь доступна всем по / */}
+                <Route
+                    path="/"
+                    element={!token ? <LandingPage /> : <Navigate to="/dashboard" replace />}
+                />
 
                 <Route
                     path="/login"
