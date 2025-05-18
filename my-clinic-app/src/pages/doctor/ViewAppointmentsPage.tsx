@@ -28,6 +28,12 @@ interface AppointmentDoctorView {
     doctor_schedule_id: number;
 }
 
+const statusTranslations: { [key: string]: string } = {
+    completed: 'Завершено',
+    scheduled: 'Запланировано',
+    cancelled: 'Отменено',
+};
+
 // Варианты Badge для статуса
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
     switch (status?.toLowerCase()) {
@@ -75,7 +81,7 @@ const ViewAppointmentsPage: React.FC = () => {
 
         try {
             await apiClient.patch(`/appointments/${appointmentId}/status`, { status: newStatus });
-            toast.success(`Статус записи #${appointmentId} изменен на "${newStatus}"`);
+            toast.success(`Статус записи #<span class="math-inline">\{appointmentId\} изменен на "</span>{statusTranslations[newStatus.toLowerCase()] || newStatus}"`);
             await fetchDoctorAppointments(); // Обновляем список
         } catch (error) {
             console.error(`Ошибка изменения статуса записи #${appointmentId}:`, error);
@@ -136,9 +142,9 @@ const ViewAppointmentsPage: React.FC = () => {
                                             <TableCell>{appointment.date ? format(parseISO(appointment.date), 'dd.MM.yyyy', { locale: ru }) : 'N/A'}</TableCell>
                                             <TableCell>{appointment.start_time ?? 'N/A'}</TableCell>
                                             <TableCell>{appointment.patient_name ?? 'N/A'}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={getStatusVariant(appointment.status)}>{appointment.status}</Badge>
-                                            </TableCell>
+                                            <Badge variant={getStatusVariant(appointment.status)}>
+                                                {statusTranslations[appointment.status.toLowerCase()] || appointment.status}
+                                            </Badge>
                                             <TableCell className="text-right space-x-2">
                                                 {/* Кнопка Завершить */}
                                                 {canComplete && (
