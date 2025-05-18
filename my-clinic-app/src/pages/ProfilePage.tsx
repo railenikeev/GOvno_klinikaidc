@@ -165,11 +165,6 @@ const ProfilePage: React.FC = () => {
                     <CardTitle>Редактирование профиля</CardTitle>
                     <CardDescription>
                         Здесь вы можете обновить вашу личную информацию.
-                        <br />
-                        <span className="text-xs text-muted-foreground">
-                            ID: {user.id} | Роль: {user.role}
-                            {user.role === 'doctor' && user.specialization_name && ` | Специализация: ${user.specialization_name}`}
-                        </span>
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
