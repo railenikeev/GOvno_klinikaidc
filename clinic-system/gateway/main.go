@@ -62,7 +62,7 @@ type User struct {
 }
 
 func getUserDataFromUsersService(userID int) (*User, error) {
-	usersServiceURL := fmt.Sprintf("http://users:8080/users/%d", userID) // Сервис users на порту 8080
+	usersServiceURL := fmt.Sprintf("http://users:8080/users/%d", userID)
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", usersServiceURL, nil)
 	if err != nil {
@@ -121,9 +121,7 @@ func AuthAndHeadersMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// Удаляем оригинальный Authorization, чтобы он не дошел до микросервисов
 		c.Request.Header.Del("Authorization")
-		// Устанавливаем заголовки с информацией о пользователе
 		c.Request.Header.Set("X-User-ID", strconv.Itoa(user.ID))
 		c.Request.Header.Set("X-User-Role", user.Role)
 		log.Printf("[Gateway AuthMiddleware] User %d (%s) authenticated. Forwarding request.", user.ID, user.Role)
@@ -131,9 +129,7 @@ func AuthAndHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-// Обновленная функция proxy
 func proxy(c *gin.Context, targetServiceBaseURL string) {
-	// c.Param("path") используется для маршрутов с *path или именованными параметрами (:param)
 	pathParam := c.Param("path")
 
 	log.Printf("[Gateway Proxy] Original Request URL: %s, Method: %s, c.Param(\"path\"): '%s', Target Base: %s",
@@ -141,15 +137,10 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 
 	var finalPathPart string
 	if pathParam == "" {
-		// Если pathParam пустой (например, для authGroup.POST("/schedules", ...) где нет *path,
-		// или для authGroup.GET("/notify", ...) где мы искусственно установили path=""),
-		// то мы хотим вызвать корень целевого сервиса.
 		finalPathPart = "/"
 	} else if !strings.HasPrefix(pathParam, "/") {
-		// Если pathParam не пустой и не начинается со слэша (например, "my" или "doctor/1"), добавляем слэш.
 		finalPathPart = "/" + pathParam
 	} else {
-		// Если pathParam уже начинается со слэша (например, "/my" или "/doctor/1"), используем как есть.
 		finalPathPart = pathParam
 	}
 
@@ -210,22 +201,15 @@ func proxy(c *gin.Context, targetServiceBaseURL string) {
 	}
 }
 
-// Обертка для usersProxyHandler, чтобы не менять c.Params напрямую в каждом хендлере
 func makeUsersProxyHandler(servicePath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// pathParam будет тем, что после /api/users/ или /api/specializations/
-		// или пустой для /api/users или /api/specializations
-		pathSuffix := c.Param("path") // Это для *path маршрутов
+		pathSuffix := c.Param("path")
 
-		// Формируем полный путь для сервиса users
-		// servicePath - это, например, "/users", "/specializations", "/register", "/login", "/me"
-		// pathSuffix - это, например, "/1" или ""
 		fullServicePath := servicePath + pathSuffix
 
-		// Передаем этот полный путь как "path" параметр для функции proxy
 		currentParams := c.Params
 		c.Params = gin.Params{gin.Param{Key: "path", Value: fullServicePath}}
-		proxy(c, "http://users:8080") // Сервис users всегда на users:8080
+		proxy(c, "http://users:8080")
 		c.Params = currentParams
 	}
 }
@@ -243,53 +227,37 @@ func main() {
 	}
 	r.Use(cors.New(corsConfig))
 
-	// --- Публичные маршруты ---
 	r.POST("/api/register", makeUsersProxyHandler("/register"))
 	r.POST("/api/login", makeUsersProxyHandler("/login"))
-	r.GET("/api/users", makeUsersProxyHandler("/users"))                     // /api/users -> users:8080/users
-	r.GET("/api/specializations", makeUsersProxyHandler("/specializations")) // /api/specializations -> users:8080/specializations
-	r.GET("/api/me", makeUsersProxyHandler("/me"))                           // /api/me -> users:8080/me
+	r.GET("/api/users", makeUsersProxyHandler("/users"))
+	r.GET("/api/specializations", makeUsersProxyHandler("/specializations"))
+	r.GET("/api/me", makeUsersProxyHandler("/me"))
 
-	// --- Защищенные маршруты ---
 	authGroup := r.Group("/api")
 	authGroup.Use(AuthAndHeadersMiddleware())
 	{
-		// Specializations
-		authGroup.POST("/specializations", makeUsersProxyHandler("/specializations"))         // /api/specializations -> users:8080/specializations
-		authGroup.PUT("/specializations/*path", makeUsersProxyHandler("/specializations"))    // /api/specializations/1 -> users:8080/specializations/1
-		authGroup.DELETE("/specializations/*path", makeUsersProxyHandler("/specializations")) // /api/specializations/1 -> users:8080/specializations/1
+		authGroup.POST("/specializations", makeUsersProxyHandler("/specializations"))
+		authGroup.PUT("/specializations/*path", makeUsersProxyHandler("/specializations"))
+		authGroup.DELETE("/specializations/*path", makeUsersProxyHandler("/specializations"))
 
-		// Users
 		authGroup.GET("/users/*path", makeUsersProxyHandler("/users"))
-		authGroup.PATCH("/users/*path", makeUsersProxyHandler("/users"))  // /api/users/1 -> users:8080/users/1
-		authGroup.DELETE("/users/*path", makeUsersProxyHandler("/users")) // /api/users/1 -> users:8080/users/1
-		authGroup.PUT("/me", makeUsersProxyHandler("/me"))                // /api/me -> users:8080/me
+		authGroup.PATCH("/users/*path", makeUsersProxyHandler("/users"))
+		authGroup.DELETE("/users/*path", makeUsersProxyHandler("/users"))
+		authGroup.PUT("/me", makeUsersProxyHandler("/me"))
 
-		// --- ИСПРАВЛЕННЫЙ ПОРЯДОК И ЛОГИКА ДЛЯ SCHEDULES ---
-		// 1. Явный маршрут для POST /api/schedules (корень группы schedules)
 		authGroup.POST("/schedules", func(c *gin.Context) {
-			// c.Param("path") здесь не используется, так как нет именованного параметра в маршруте
-			// Мы хотим проксировать на корень сервиса schedules, т.е. на "/"
-			// Для этого в proxy pathParam должен быть "" или "/", чтобы finalPathPart стал "/"
 			currentParams := c.Params
-			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}} // proxy сделает из этого "/"
+			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}}
 			proxy(c, "http://schedules:8082")
 			c.Params = currentParams
 		})
 
-		// 2. Общий маршрут для всего остального внутри /schedules
-		// (GET /my, GET /doctor/:id, DELETE /:id)
 		authGroup.Any("/schedules/*path", func(c *gin.Context) {
-			// Здесь c.Param("path") будет содержать, например, "/my" или "/doctor/1" или "/1"
 			proxy(c, "http://schedules:8082")
 		})
-		// --- КОНЕЦ ИСПРАВЛЕННОГО ПОРЯДКА ДЛЯ SCHEDULES ---
 
-		// Appointments
 		authGroup.POST("/appointments", func(c *gin.Context) {
 			currentParams := c.Params
-			// Чтобы проксировать на корень сервиса appointments, c.Param("path") должен быть ""
-			// Функция proxy затем сформирует путь к сервису appointments как http://appointments:8083/
 			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}}
 			proxy(c, "http://appointments:8083")
 			c.Params = currentParams
@@ -303,18 +271,14 @@ func main() {
 		})
 
 		authGroup.Any("/appointments/*path", func(c *gin.Context) {
-			// c.Param("path") здесь будет содержать, например, "/123/status" или "/456"
 			proxy(c, "http://appointments:8083")
 		})
 
-		// Medical Records
 		authGroup.GET("/medical_records", func(c *gin.Context) {
 			currentParams := c.Params
-			// Устанавливаем "path" для функции proxy, чтобы она использовала "/records"
-			// Используем append для создания нового среза params, чтобы не изменять исходный неожиданным образом
 			tempParams := make(gin.Params, 0, len(currentParams)+1)
 			for _, p := range currentParams {
-				if p.Key != "path" { // Копируем все параметры, кроме "path", если он там был
+				if p.Key != "path" {
 					tempParams = append(tempParams, p)
 				}
 			}
@@ -322,10 +286,9 @@ func main() {
 			c.Params = tempParams
 
 			proxy(c, "http://medical_records:8084")
-			c.Params = currentParams // Восстанавливаем исходные параметры (на всякий случай)
+			c.Params = currentParams
 		})
 
-		// Для POST /api/medical_records (например, для создания новой записи)
 		authGroup.POST("/medical_records", func(c *gin.Context) {
 			currentParams := c.Params
 			tempParams := make(gin.Params, 0, len(currentParams)+1)
@@ -341,37 +304,34 @@ func main() {
 			c.Params = currentParams
 		})
 
-		// Для всех остальных путей /api/medical_records/* (например, /api/medical_records/:id)
 		authGroup.Any("/medical_records/*path", func(c *gin.Context) {
-			subPath := c.Param("path") // Это будет, например, "/123" или "/detail/456"
+			subPath := c.Param("path")
 			currentParams := c.Params
 
 			tempParams := make(gin.Params, 0, len(currentParams)+1)
 			for _, p := range currentParams {
-				if p.Key != "path" { // Копируем все параметры, кроме "path"
+				if p.Key != "path" {
 					tempParams = append(tempParams, p)
 				}
 			}
-			// Устанавливаем "path" для функции proxy, чтобы она использовала "/records" + subPath
+
 			tempParams = append(tempParams, gin.Param{Key: "path", Value: "/records" + subPath})
 			c.Params = tempParams
 
 			proxy(c, "http://medical_records:8084")
 			c.Params = currentParams
 		})
-		// Payments
+
 		authGroup.Any("/payments/*path", func(c *gin.Context) { proxy(c, "http://payments:8085") })
 
-		// Notifications
-		// Сервис notifications ожидает GET на "" (корень) и PATCH на "/:id/read"
 		authGroup.GET("/notify", func(c *gin.Context) {
 			currentParams := c.Params
-			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}} // Проксируем на корень сервиса notifications
-			proxy(c, "http://notifications:8086")                    // Базовый URL без /notify
+			c.Params = gin.Params{gin.Param{Key: "path", Value: ""}}
+			proxy(c, "http://notifications:8086")
 			c.Params = currentParams
 		})
-		authGroup.PATCH("/notify/*path", func(c *gin.Context) { // *path будет "/:id/read"
-			proxy(c, "http://notifications:8086") // Базовый URL без /notify
+		authGroup.PATCH("/notify/*path", func(c *gin.Context) {
+			proxy(c, "http://notifications:8086")
 		})
 	}
 

@@ -538,7 +538,6 @@ func getAllAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
 			dateStr := dbDate.Format("2006-01-02")
 			appt.Date = &dateStr
 
-			// ИЗМЕНЕНИЕ: Форматируем время
 			startTimeStr := dbStartTime.Format("15:04")
 			endTimeStr := dbEndTime.Format("15:04")
 			appt.StartTime = &startTimeStr
@@ -548,14 +547,14 @@ func getAllAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
 				name := specName.String
 				appt.SpecializationName = &name
 			}
-			appointmentsResult = append(appointmentsResult, appt) // Используем новое имя
+			appointmentsResult = append(appointmentsResult, appt)
 		}
 		if err = rows.Err(); err != nil {
 			log.Printf("Appointments ERROR: Ошибка итерации (getAllAppointments): %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сервера при обработке записей"})
 			return
 		}
-		c.JSON(http.StatusOK, appointmentsResult) // Используем новое имя
+		c.JSON(http.StatusOK, appointmentsResult)
 	}
 }
 
@@ -599,21 +598,19 @@ func getDocumentableAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var resultAppointments []DocumentableAppointmentInfo // Изменено имя
+		var resultAppointments []DocumentableAppointmentInfo
 		for rows.Next() {
 			var apptInfo DocumentableAppointmentInfo
 			var dbDate time.Time
-			var dbStartTime time.Time // ИЗМЕНЕНИЕ: Тип для сканирования
-			// ИЗМЕНЕНИЕ: Сканируем время в dbStartTime
+			var dbStartTime time.Time
 			errScan := rows.Scan(&apptInfo.ID, &dbDate, &dbStartTime)
 			if errScan != nil {
 				log.Printf("Appointments ERROR: Ошибка сканирования (getDocumentableAppointments): %v", errScan)
 				continue
 			}
 			apptInfo.Date = dbDate.Format("2006-01-02")
-			// ИЗМЕНЕНИЕ: Форматируем время
 			apptInfo.StartTime = dbStartTime.Format("15:04")
-			resultAppointments = append(resultAppointments, apptInfo) // Используем новое имя
+			resultAppointments = append(resultAppointments, apptInfo)
 		}
 		if err = rows.Err(); err != nil {
 			log.Printf("Appointments ERROR: Ошибка итерации (getDocumentableAppointments): %v", err)
@@ -623,6 +620,7 @@ func getDocumentableAppointmentsHandler(db *sql.DB) gin.HandlerFunc {
 		if resultAppointments == nil {
 			resultAppointments = []DocumentableAppointmentInfo{}
 		}
-		c.JSON(http.StatusOK, resultAppointments) // Используем новое имя
+		c.JSON(http.StatusOK, resultAppointments)
+
 	}
 }

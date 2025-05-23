@@ -142,8 +142,6 @@ const ViewAllAppointmentsPage: React.FC = () => {
     const handleClearFilters = () => {
         setFilterPatientId(undefined);
         setFilterDoctorId(undefined);
-        // После сброса фильтров, вызываем fetchAllAppointments без параметров,
-        // чтобы загрузить все записи.
         fetchAllAppointments();
     };
 

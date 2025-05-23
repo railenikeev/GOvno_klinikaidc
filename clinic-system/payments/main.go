@@ -2,20 +2,19 @@ package main
 
 import (
 	"database/sql"
-	"errors" // Добавили для errors.New и sql.ErrNoRows
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv" // Добавили
-	"strings" // Добавили
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
-// Используем тот же хелпер для User Info
 func getUserInfo(c *gin.Context) (userID int, userRole string, err error) {
 	idStr := c.GetHeader("X-User-ID")
 	role := c.GetHeader("X-User-Role")
@@ -32,7 +31,6 @@ func getUserInfo(c *gin.Context) (userID int, userRole string, err error) {
 	return
 }
 
-// Структура для платежа
 type Payment struct {
 	ID            int       `json:"id"`
 	AppointmentID int       `json:"appointment_id" binding:"required"`
@@ -41,12 +39,11 @@ type Payment struct {
 	PaymentStatus string    `json:"payment_status"`
 }
 
-// Структура для ответа GET /payments
 type PaymentResponse struct {
 	ID            int          `json:"id"`
 	AppointmentID int          `json:"appointment_id"`
 	Amount        float64      `json:"amount"`
-	PaymentDate   sql.NullTime `json:"payment_date"` // Используем sql.NullTime для сканирования
+	PaymentDate   sql.NullTime `json:"payment_date"`
 	PaymentStatus string       `json:"payment_status"`
 	PatientID     *int         `json:"patient_id,omitempty"`
 	PatientName   *string      `json:"patient_name,omitempty"`
@@ -72,9 +69,7 @@ func main() {
 	r := gin.Default()
 	paymentsRoutes := r.Group("/payments")
 	{
-		// POST /payments - Зарегистрировать факт оплаты (теперь доступен всем аутентифицированным)
 		paymentsRoutes.POST("", createPaymentHandler(db))
-		// GET /payments - Получить список платежей (с авторизацией по роли)
 		paymentsRoutes.GET("", getPaymentsHandler(db))
 	}
 
@@ -85,9 +80,6 @@ func main() {
 	}
 }
 
-// --- Обработчики ---
-
-// POST /payments
 func createPaymentHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestUserID, requestUserRole, err := getUserInfo(c)
@@ -96,9 +88,6 @@ func createPaymentHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 1. Убрали проверку `requestUserRole != "admin"`
-
-		// 2. Биндинг JSON
 		var req Payment
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Неверный формат запроса: %v", err.Error())})
@@ -109,7 +98,6 @@ func createPaymentHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 3. Проверка прав для пациента
 		if requestUserRole == "patient" {
 			var actualPatientID int
 			checkQuery := "SELECT patient_id FROM appointments WHERE id = $1"
@@ -128,14 +116,11 @@ func createPaymentHandler(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		// Админы и врачи (если им это нужно) могут создавать платеж для любой записи
 
-		// 4. Вставка в базу данных
-		paymentStatus := "paid" // Оставляем имитацию успешной оплаты
+		paymentStatus := "paid"
 		paymentDate := time.Now()
 		query := `INSERT INTO payments (appointment_id, amount, payment_date, payment_status) VALUES ($1, $2, $3, $4) RETURNING id`
 		var paymentID int
-		// Переопределяем err
 		err = db.QueryRow(query, req.AppointmentID, req.Amount, paymentDate, paymentStatus).Scan(&paymentID)
 		if err != nil {
 			if strings.Contains(err.Error(), "payments_appointment_id_key") {
@@ -156,7 +141,6 @@ func createPaymentHandler(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// GET /payments
 func getPaymentsHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestUserID, requestUserRole, err := getUserInfo(c)
