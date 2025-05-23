@@ -1,5 +1,4 @@
-// my-clinic-app/src/pages/admin/ViewAllAppointmentsPage.tsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO, isFuture } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -45,7 +44,6 @@ const getStatusVariant = (status: string): "default" | "secondary" | "destructiv
     }
 };
 
-// Объект для перевода статусов
 const statusTranslations: { [key: string]: string } = {
     completed: 'Завершена',
     scheduled: 'Запланирована',
@@ -86,8 +84,8 @@ const ViewAllAppointmentsPage: React.FC = () => {
                 const dateB = b.date ? parseISO(b.date) : new Date(0);
                 const dateComparison = dateB.getTime() - dateA.getTime();
                 if (dateComparison !== 0) return dateComparison;
-                const timeA = a.start_time ?? '00:00';
-                const timeB = b.start_time ?? '00:00';
+                //const timeA = a.start_time ?? '00:00';
+                //const timeB = b.start_time ?? '00:00';
                 const fullTimeA = a.date && a.start_time ? parseISO(`${a.date}T${a.start_time}`) : new Date(0);
                 const fullTimeB = b.date && b.start_time ? parseISO(`${b.date}T${b.start_time}`) : new Date(0);
                 return fullTimeB.getTime() - fullTimeA.getTime();
