@@ -1,4 +1,3 @@
-// my-clinic-app/src/pages/doctor/ManageSchedulePage.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parse, isValid, parseISO } from 'date-fns';
@@ -45,12 +44,12 @@ const addSlotSchema = z.object({
 type AddSlotFormValues = z.infer<typeof addSlotSchema>;
 
 const ManageSchedulePage: React.FC = () => {
-    const { user, isLoading: authIsLoading } = useAuth(); // Получаем isLoading из AuthContext и переименовываем
+    const { user, isLoading: authIsLoading } = useAuth();
 
     const [mySlots, setMySlots] = useState<ScheduleSlot[]>([]);
-    const [pageIsLoading, setPageIsLoading] = useState<boolean>(true); // Локальное состояние загрузки для страницы
+    const [pageIsLoading, setPageIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [isProcessing, setIsProcessing] = useState<boolean>(false); // Для блокировки во время операций добавления/удаления
+    const [isProcessing, setIsProcessing] = useState<boolean>(false);
     const [slotToDelete, setSlotToDelete] = useState<ScheduleSlot | null>(null);
     const [isAlertOpen, setIsAlertOpen] = useState(false);
 
@@ -60,11 +59,11 @@ const ManageSchedulePage: React.FC = () => {
     });
 
     const fetchMySlots = useCallback(async () => {
-        setPageIsLoading(true); // Используем локальное состояние
+        setPageIsLoading(true);
         setError(null);
         try {
             const response = await apiClient.get<ScheduleSlot[]>('/schedules/my');
-            if (response.data === null) { // Явная проверка на null
+            if (response.data === null) {
                 console.warn("API /schedules/my вернул null вместо массива. Устанавливаем пустой массив.");
                 setMySlots([]);
             } else {
@@ -73,7 +72,7 @@ const ManageSchedulePage: React.FC = () => {
                     if (dateComparison !== 0) return dateComparison;
                     return a.start_time.localeCompare(b.start_time);
                 });
-                setMySlots(response.data || []); // Гарантируем массив
+                setMySlots(response.data || []);
             }
         } catch (err: any) {
             console.error("Ошибка загрузки расписания:", err);
@@ -88,7 +87,6 @@ const ManageSchedulePage: React.FC = () => {
                     errorMessage = err.response.data?.error || `Ошибка сервера (${err.response.status})`;
                 }
             } else if (err instanceof Error) {
-                // Проверяем на TypeError из-за response.data is null
                 if (err.message.includes("response.data is null") || err.message.includes("null")) {
                     errorMessage = "Получен некорректный ответ от сервера (null).";
                 } else {
@@ -99,33 +97,30 @@ const ManageSchedulePage: React.FC = () => {
             toast.error(errorMessage);
             setMySlots([]);
         } finally {
-            setPageIsLoading(false); // Используем локальное состояние
+            setPageIsLoading(false);
         }
-    }, []); // Оставляем пустым, т.к. user не используется напрямую
+    }, []);
 
     useEffect(() => {
         console.log("[ManageSchedulePage] useEffect triggered. User:", user, "Auth isLoading:", authIsLoading);
-        if (authIsLoading) { // Если AuthContext еще грузится, ждем
-            setPageIsLoading(true); // Показываем общую загрузку страницы
+        if (authIsLoading) {
+            setPageIsLoading(true);
             return;
         }
-        // AuthContext загружен
         if (user && user.role === 'doctor') {
-            fetchMySlots(); // Загружаем слоты
+            fetchMySlots();
         } else if (!user) {
             setError("Необходимо авторизоваться как врач для доступа к этой странице.");
             setPageIsLoading(false);
             setMySlots([]);
-        } else { // user.role !== 'doctor'
+        } else {
             setError("Доступ к управлению расписанием только для врачей.");
             setPageIsLoading(false);
             setMySlots([]);
         }
-    }, [user, authIsLoading, fetchMySlots]); // Теперь зависим и от authIsLoading
+    }, [user, authIsLoading, fetchMySlots]);
 
     const onAddSlotSubmit = async (data: AddSlotFormValues) => {
-        // ... (код onAddSlotSubmit остается таким же, как в вашем последнем предоставленном варианте)
-        // Убедитесь, что setIsProcessing используется правильно
         setIsProcessing(true);
         const payload = {
             date: format(data.date, 'yyyy-MM-dd'),
@@ -163,7 +158,6 @@ const ManageSchedulePage: React.FC = () => {
     };
 
     const handleDeleteClick = (slot: ScheduleSlot) => {
-        // ... (код handleDeleteClick остается таким же)
         if (!slot.is_available) {
             toast.info("Нельзя удалить слот, на который уже есть запись или он недоступен.");
             return;
@@ -173,8 +167,6 @@ const ManageSchedulePage: React.FC = () => {
     };
 
     const handleDeleteConfirm = async () => {
-        // ... (код handleDeleteConfirm остается таким же, как в вашем последнем предоставленном варианте)
-        // Убедитесь, что setIsProcessing используется правильно
         if (!slotToDelete) return;
         setIsProcessing(true);
         setIsAlertOpen(false);
@@ -212,19 +204,17 @@ const ManageSchedulePage: React.FC = () => {
     };
 
     const groupedExistingSlots = useMemo(() => {
-        // ... (код groupedExistingSlots остается таким же)
         return mySlots.reduce((acc, slot) => {
             (acc[slot.date] = acc[slot.date] || []).push(slot);
             return acc;
         }, {} as Record<string, ScheduleSlot[]>);
     }, [mySlots]);
 
-    // Управляем главным состоянием загрузки/ошибки
     if (authIsLoading || (pageIsLoading && mySlots.length === 0 && !error)) {
         return <div className="container mx-auto p-4">Загрузка расписания...</div>;
     }
 
-    if (error && mySlots.length === 0) { // Если есть ошибка и слоты не загружены
+    if (error && mySlots.length === 0) {
         return (
             <div className="container mx-auto p-4">
                 <p className="text-red-500">{error}</p>
@@ -234,7 +224,6 @@ const ManageSchedulePage: React.FC = () => {
             </div>
         );
     }
-    // Если пользователь не врач, но AuthContext загружен (ошибка уже установлена в useEffect)
     if (!authIsLoading && (!user || user.role !== 'doctor') && error) {
         return (
             <div className="container mx-auto p-4">
@@ -247,11 +236,8 @@ const ManageSchedulePage: React.FC = () => {
     }
 
 
-    // Код JSX return остается таким же, как в вашем последнем предоставленном варианте
-    // Убедитесь, что все disabled={isProcessing} на месте
     return (
         <div className="container mx-auto p-4">
-            {/* ... (Toaster, заголовок, кнопки) ... */}
             <Toaster position="top-center" richColors closeButton />
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold">Управление моим расписанием</h1>
@@ -347,7 +333,7 @@ const ManageSchedulePage: React.FC = () => {
                                     {Object.entries(groupedExistingSlots).map(([date, slotsOnDate]) => (
                                         <div key={date}>
                                             <h3 className="font-semibold mb-2 text-lg">
-                                                {format(parseISO(date), 'd MMMM yyyy, EEEE', { locale: ru })} {/* ИСПРАВЛЕНО: гггг -> yyyy */}
+                                                {format(parseISO(date), 'd MMMM yyyy, EEEE', { locale: ru })}
                                             </h3>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {slotsOnDate.map((slot: ScheduleSlot) => (

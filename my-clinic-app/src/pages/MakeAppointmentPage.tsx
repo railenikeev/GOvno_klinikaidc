@@ -1,4 +1,3 @@
-// my-clinic-app/src/pages/MakeAppointmentPage.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
@@ -23,7 +22,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-// WalletCards может быть более подходящей иконкой для "Наличными или картой в клинике"
 import { Check, ChevronsUpDown, CreditCard, WalletCards, CalendarCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +29,6 @@ import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Toaster, toast } from "sonner";
 
-// ... (интерфейсы остаются такими же, как в предыдущей версии) ...
 interface Doctor {
     id: number;
     full_name: string;
@@ -285,7 +282,7 @@ const MakeAppointmentPage: React.FC = () => {
                                 <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                                     {Object.entries(groupedSlots).sort(([dateA], [dateB]) => dateA.localeCompare(dateB)).map(([date, slotsOnDate]) => (
                                         <div key={date}>
-                                            {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' для полной локализованной даты */}
+                                            {}
                                             <h3 className="font-semibold mb-2 text-lg">{format(parseISO(date), 'PPPP', { locale: ru })}</h3>
                                             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                                                 {slotsOnDate.sort((a,b) => a.start_time.localeCompare(b.start_time)).map((slot) => (
@@ -315,7 +312,6 @@ const MakeAppointmentPage: React.FC = () => {
                                 <CardDescription>
                                     Вы выбрали запись к врачу <span className="font-semibold">{selectedDoctor.full_name}</span>
                                     <br/>
-                                    {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' */}
                                     Дата: <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'PPPP', { locale: ru }) : ''}</span>
                                     <br/>
                                     Время: <span className="font-semibold">{selectedSlot.start_time}</span>
@@ -332,7 +328,7 @@ const MakeAppointmentPage: React.FC = () => {
                                     </Label>
                                     <Label htmlFor="cash_or_card_at_clinic" className={cn("flex items-center space-x-3 p-3 rounded-md border hover:bg-accent cursor-pointer", selectedPaymentMethod === 'cash_or_card_at_clinic' && "border-primary ring-2 ring-primary")}>
                                         <RadioGroupItem value="cash_or_card_at_clinic" id="cash_or_card_at_clinic" />
-                                        {/* Замена иконки Home на WalletCards */}
+                                        {}
                                         <WalletCards className="h-5 w-5 text-green-600" />
                                         <span>Наличными или картой в клинике</span>
                                     </Label>
@@ -348,7 +344,7 @@ const MakeAppointmentPage: React.FC = () => {
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Подтвердить запись?</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем 'PPPP' или 'dd.MM.yyyy' */}
+                                                {}
                                                 Вы уверены, что хотите записаться к врачу <span className="font-semibold">{selectedDoctor?.full_name}</span> на <span className="font-semibold">{selectedSlot.date ? format(parseISO(selectedSlot.date), 'PPPP', { locale: ru }) : ''} в {selectedSlot.start_time}</span>
                                                 {selectedPaymentMethod === 'online' ? " с онлайн оплатой?" : " с оплатой наличными или картой в клинике?"}
                                             </AlertDialogDescription>

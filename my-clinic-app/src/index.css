@@ -1,56 +1,48 @@
 @import "tailwindcss";
-@import "tw-animate-css"; /* Если вы активно используете анимации из этой библиотеки */
+@import "tw-animate-css";
 
-/*
-  Базовые переменные для светлой темы.
-  Используем oklch для более предсказуемого восприятия цвета и яркости.
-  L - lightness (0-1), C - chroma (0-~0.4), H - hue (0-360)
-*/
 :root {
-  --background: oklch(0.98 0.01 240); /* Очень светлый, почти белый с легким холодным оттенком */
-  --foreground: oklch(0.18 0.03 240); /* Темно-серый, почти черный с холодным оттенком для основного текста */
+  --background: oklch(0.98 0.01 240);
+  --foreground: oklch(0.18 0.03 240);
 
-  --card: oklch(1 0 0); /* Чисто белый для карточек */
-  --card-foreground: var(--foreground); /* Текст на карточках такой же, как основной */
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
 
-  --popover: oklch(1 0 0); /* Чисто белый для всплывающих окон */
+  --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
 
-  /* Акцентный цвет - умеренно-насыщенный сине-фиолетовый, как на скриншоте, но для светлой темы */
-  --primary: oklch(0.55 0.16 275); /* Пример: Яркий, но не кричащий фиолетово-синий */
-  --primary-foreground: oklch(0.98 0.01 275); /* Очень светлый, почти белый для текста на primary-фоне */
+  --primary: oklch(0.55 0.16 275);
+  --primary-foreground: oklch(0.98 0.01 275);
 
-  --secondary: oklch(0.94 0.02 240); /* Светло-серый для второстепенных элементов */
-  --secondary-foreground: oklch(0.25 0.03 240); /* Темно-серый текст на secondary-фоне */
+  --secondary: oklch(0.94 0.02 240);
+  --secondary-foreground: oklch(0.25 0.03 240);
 
-  --muted: oklch(0.92 0.015 240); /* Очень светло-серый для приглушенных элементов */
-  --muted-foreground: oklch(0.45 0.02 240); /* Средне-серый текст для muted */
+  --muted: oklch(0.92 0.015 240);
+  --muted-foreground: oklch(0.45 0.02 240);
 
-  --accent: oklch(0.96 0.015 240); /* Почти белый, чуть темнее фона карточек, для акцентных фонов */
-  --accent-foreground: var(--primary); /* Акцентный текст на accent-фоне (например, primary цвет) */
+  --accent: oklch(0.96 0.015 240);
+  --accent-foreground: var(--primary);
 
-  --destructive: oklch(0.55 0.22 25); /* Умеренно-яркий красный для ошибок/удаления */
-  --destructive-foreground: oklch(0.98 0.01 25); /* Светлый текст на destructive-фоне */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 25);
 
-  --border: oklch(0.90 0.01 240); /* Светло-серые границы */
-  --input: oklch(0.88 0.01 240); /* Чуть более темные границы/фон для инпутов */
-  --ring: var(--primary); /* Цвет кольца фокуса, такой же как primary */
+  --border: oklch(0.90 0.01 240);
+  --input: oklch(0.88 0.01 240);
+  --ring: var(--primary);
 
-  --radius: 0.625rem; /* 10px - как у вас было, хорошее значение */
-  --radius-sm: calc(var(--radius) - 4px); /* 6px */
-  --radius-md: calc(var(--radius) - 2px); /* 8px */
-  --radius-lg: var(--radius); /* 10px */
-  --radius-xl: calc(var(--radius) + 4px); /* 14px */
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 
-  /* Переменные для графиков, если они будут, можно оставить дефолтные или настроить */
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
 
-  /* Переменные для сайдбара, если он будет */
-  --sidebar: oklch(0.97 0.01 240); /* Очень светлый фон для сайдбара */
+  --sidebar: oklch(0.97 0.01 240);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
@@ -60,7 +52,6 @@
   --sidebar-ring: var(--ring);
 }
 
-/* Переменные для темной темы (оставляем ваши) */
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -69,9 +60,8 @@
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
 
-  /* Для темной темы primary может быть светлее или менее насыщенным */
-  --primary: oklch(0.65 0.18 275); /* Пример: Фиолетово-синий для темной темы */
-  --primary-foreground: oklch(0.1 0.02 275); /* Темный текст на primary-фоне в темной теме */
+  --primary: oklch(0.65 0.18 275);
+  --primary-foreground: oklch(0.1 0.02 275);
 
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -80,10 +70,10 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0); /* Светлый текст для destructive в темной теме */
+  --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0); /* Можно сделать --ring: var(--primary) и для темной темы */
+  --ring: oklch(0.556 0 0);
 
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -101,10 +91,6 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-/*
-  Определение переменных Tailwind на основе CSS-переменных.
-  Это используется Shadcn UI.
-*/
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -125,7 +111,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground); /* Добавлено */
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -145,75 +131,41 @@
 }
 
 
-/* Базовые стили */
 @layer base {
   * {
-    @apply border-border outline-ring/50; /* Используем переменную ring для outline */
+    @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; /* Оставляем ваш шрифт по умолчанию */
-    line-height: 1.6; /* Немного увеличил для лучшей читаемости */
+    font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
     font-weight: 400;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Убрал color-scheme, т.к. управляем через Tailwind переменные */
-    /* Убрал color и background-color, т.к. они задаются через @apply bg-background text-foreground */
     min-height: 100vh;
-    /* Следующие два свойства можно убрать, если layout управляется flex/grid в App.tsx */
-    /* display: flex; */
-    /* place-items: center; */
-    margin: 0; /* Убедимся, что нет отступов у body */
+    margin: 0;
   }
 
   a {
-    @apply font-medium text-primary underline-offset-4; /* Ссылки по умолчанию primary цвета */
-    text-decoration: none; /* Убираем стандартное подчеркивание, если не нужно */
+    @apply font-medium text-primary underline-offset-4;
+    text-decoration: none;
   }
   a:hover {
-    @apply underline text-[oklch(from_var(--primary)_l_c_h/0.8)]; /* Затемняем primary цвет при наведении */
+    @apply underline text-[oklch(from_var(--primary)_l_c_h/0.8)];
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight; /* Немного сжатое межбуквенное расстояние для заголовков */
+    @apply font-semibold tracking-tight;
   }
 
   h1 {
-    @apply text-3xl; /* Был 3.2em, лучше использовать Tailwind классы */
-    line-height: 1.2; /* Был 1.1 */
+    @apply text-3xl;
+    line-height: 1.2;
   }
   h2 { @apply text-2xl; }
   h3 { @apply text-xl; }
-  /* и т.д. */
 
 
-  /* Стили кнопок из вашего старого CSS - их лучше перенести на Tailwind классы
-     в компоненте Button от Shadcn. Но если есть специфичные глобальные кнопки, то можно оставить.
-     Shadcn/ui button уже имеет свои стили. */
-  /*
-  button {
-    border-radius: 8px;
-    border: 1px solid transparent;
-    padding: 0.6em 1.2em;
-    font-size: 1em;
-    font-weight: 500;
-    font-family: inherit;
-    background-color: #1a1a1a;
-    cursor: pointer;
-    transition: border-color 0.25s;
-  }
-  button:hover {
-    border-color: #646cff;
-  }
-  button:focus,
-  button:focus-visible {
-    outline: 4px auto -webkit-focus-ring-color;
-  }
-  */
-
-  /* Удаляем стили для @media (prefers-color-scheme: light), так как :root уже для светлой темы.
-     Темная тема управляется через .dark {}
-  */
 }

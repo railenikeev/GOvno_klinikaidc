@@ -1,4 +1,3 @@
-// src/App.tsx
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -9,7 +8,6 @@ import MainLayout from './components/MainLayout';
 import { useAuth } from './contexts/AuthContext';
 import LandingPage from './pages/LandingPage';
 
-// ... остальные импорты ваших страниц ...
 import MakeAppointmentPage from './pages/MakeAppointmentPage';
 import MyAppointmentsPage from './pages/MyAppointmentsPage';
 import MyMedicalRecordsPage from './pages/MyMedicalRecordsPage';
@@ -26,7 +24,6 @@ import ManageUsersPage from './pages/admin/ManageUsersPage';
 import ManageAllSchedulesPage from './pages/admin/ManageAllSchedulesPage';
 import ViewAllAppointmentsPage from './pages/admin/ViewAllAppointmentsPage';
 
-// Компонент-обертка для маршрутов, использующих MainLayout
 const AppWithLayout = () => {
     return (
         <MainLayout>
@@ -49,7 +46,6 @@ function App() {
     return (
         <BrowserRouter>
             <Routes>
-                {/* Публичные маршруты и LandingPage */}
                 <Route
                     path="/"
                     element={!token ? <LandingPage /> : <Navigate to="/dashboard" replace />}
@@ -64,10 +60,9 @@ function App() {
                     element={!token ? <RegisterPage /> : <Navigate to="/dashboard" replace />}
                 />
 
-                {/* Защищенные маршруты с MainLayout */}
-                <Route element={<ProtectedRoute />}> {/* Защищает все вложенные маршруты */}
-                    <Route element={<AppWithLayout />}> {/* Применяет MainLayout */}
-                        <Route path="/dashboard" element={<DashboardPage />} /> {/* Дашборд на /dashboard */}
+                <Route element={<ProtectedRoute />}>
+                    <Route element={<AppWithLayout />}>
+                        <Route path="/dashboard" element={<DashboardPage />} />
                         <Route path="/make-appointment" element={<MakeAppointmentPage />} />
                         <Route path="/my-appointments" element={<MyAppointmentsPage />} />
                         <Route path="/my-records" element={<MyMedicalRecordsPage />} />
@@ -75,12 +70,10 @@ function App() {
                         <Route path="/notifications" element={<NotificationsPage />} />
                         <Route path="/profile" element={<ProfilePage />} />
 
-                        {/* Маршруты для доктора */}
                         <Route path="/manage-schedule" element={<ManageSchedulePage />} />
                         <Route path="/view-appointments" element={<ViewAppointmentsPage />} />
                         <Route path="/patient-record/:patientId" element={<PatientRecordPage />} />
 
-                        {/* Маршруты для администратора */}
                         <Route path="/admin/specializations" element={<ManageSpecializationsPage />} />
                         <Route path="/admin/users" element={<ManageUsersPage />} />
                         <Route path="/admin/schedules" element={<ManageAllSchedulesPage />} />

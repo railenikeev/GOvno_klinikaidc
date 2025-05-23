@@ -5,7 +5,7 @@ import apiClient from '@/services/apiClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Toaster, toast } from "sonner";
-import { Briefcase, Users, CalendarDays, ListChecks, CreditCard, Bell, CalendarPlus, FileText } from 'lucide-react'; // Добавил Briefcase, Bell
+import { Briefcase, Users, CalendarDays, ListChecks, CreditCard, Bell, CalendarPlus, FileText } from 'lucide-react';
 
 interface Appointment {
     id: number;
@@ -29,7 +29,7 @@ const statusTranslations: { [key: string]: string } = {
 };
 
 const DashboardPage: React.FC = () => {
-    const { user } = useAuth(); // Убираем logout, он должен быть в Header.tsx
+    const { user } = useAuth();
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
@@ -41,11 +41,10 @@ const DashboardPage: React.FC = () => {
             setIsLoading(true);
             setError(null);
             let url = '';
-            // Загружаем записи для пациента и доктора
             if (user.role === 'patient' || user.role === 'doctor') {
                 url = user.role === 'patient' ? '/appointments/my/patient' : '/appointments/my/doctor';
             } else {
-                setIsLoading(false); // Для админа или других ролей здесь данные не грузим
+                setIsLoading(false);
                 return;
             }
 
@@ -58,9 +57,9 @@ const DashboardPage: React.FC = () => {
                     if (dateComparison !== 0) return dateComparison;
                     const timeA = a.start_time ?? '00:00';
                     const timeB = b.start_time ?? '00:00';
-                    return timeA.localeCompare(timeB); // Более раннее время выше для той же даты
+                    return timeA.localeCompare(timeB);
                 });
-                setAppointments(response.data.slice(0, 3)); // Показываем 3 ближайшие
+                setAppointments(response.data.slice(0, 3));
             } catch (err) {
                 console.error("Ошибка загрузки записей:", err);
                 setError("Не удалось загрузить список записей.");
@@ -81,11 +80,9 @@ const DashboardPage: React.FC = () => {
             return <div className="flex-1 flex items-center justify-center text-muted-foreground"><p>Загрузка данных пользователя...</p></div>;
         }
 
-        // Оставляем общую обертку с w-full и space-y-8,
-        // а для пациента/доктора можно добавить max-w- и mx-auto при необходимости
         const roleSpecificWrapperClass = user.role === 'patient' || user.role === 'doctor'
-            ? "w-full max-w-5xl mx-auto space-y-8" // Для пациента и доктора контент центрирован и ограничен по ширине
-            : "w-full space-y-6"; // Для админа - на всю ширину контейнера
+            ? "w-full max-w-5xl mx-auto space-y-8"
+            : "w-full space-y-6";
 
         return (
             <div className={roleSpecificWrapperClass}>
@@ -119,7 +116,7 @@ const DashboardPage: React.FC = () => {
                                                             <p className="text-sm text-muted-foreground">Дата: {appointment.date ?? 'N/A'} Время: {appointment.start_time ? appointment.start_time.substring(0,5) : 'N/A'}</p>
                                                         </li>
                                                     ))}
-                                                    {appointments.length > 0 && ( // Показываем кнопку, если есть что смотреть
+                                                    {appointments.length > 0 && (
                                                         <Button variant="link" asChild className="mt-3 px-0 text-sm">
                                                             <Link to="/my-appointments">Все мои записи →</Link>
                                                         </Button>
@@ -138,7 +135,7 @@ const DashboardPage: React.FC = () => {
                                         <Button variant="outline" size="lg" className="w-full justify-start text-left h-auto py-4" asChild>
                                             <Link to="/my-payments"><CreditCard className="mr-3 h-5 w-5 flex-shrink-0" />Мои платежи</Link>
                                         </Button>
-                                        {/* Уведомления доступны из хедера, здесь можно убрать, если не нужно дублировать */}
+                                        {}
                                     </div>
                                 </>
                             );
@@ -195,30 +192,29 @@ const DashboardPage: React.FC = () => {
                             );
 
                         case 'admin':
-                            // Используем структуру из предыдущего варианта с карточками
                             return (
                                 <>
-                                    {/* Заголовок для админ панели можно убрать отсюда, если он уже есть выше */}
-                                    {/* <h2 className="text-2xl font-semibold mb-6 text-center">Панель Администратора</h2> */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6"> {/* Изменил на xl:grid-cols-3 для лучшего вида */}
+                                    {}
+                                    {}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6"> {}
                                         {[
                                             { title: "Пользователи", link: "/admin/users", icon: Users, description: "Управление всеми пользователями системы." },
                                             { title: "Специализации", link: "/admin/specializations", icon: Briefcase, description: "Добавление и редактирование специализаций." },
                                             { title: "Расписания Врачей", link: "/admin/schedules", icon: CalendarDays, description: "Просмотр и управление слотами врачей." },
                                             { title: "Все Записи", link: "/admin/appointments", icon: ListChecks, description: "Мониторинг и управление записями." },
-                                            { title: "Платежи", link: "/admin/payments", icon: CreditCard, description: "Просмотр всех транзакций.", comingSoon: false }, // Убрал comingSoon для примера
+                                            { title: "Платежи", link: "/admin/payments", icon: CreditCard, description: "Просмотр всех транзакций.", comingSoon: false },
                                             { title: "Уведомления", link: "/admin/notifications", icon: Bell, description: "Отправка и управление уведомлениями.", comingSoon: true },
                                         ].map((item, index) => (
                                             <Card key={index} className="flex flex-col hover:shadow-lg transition-shadow">
                                                 <CardHeader className="pb-4">
-                                                    <CardTitle className="flex items-start text-lg"> {/* Уменьшил размер заголовка карточки */}
-                                                        <item.icon className="mr-3 h-5 w-5 text-primary flex-shrink-0 mt-0.5" /> {/* Скорректировал иконку */}
+                                                    <CardTitle className="flex items-start text-lg"> {}
+                                                        <item.icon className="mr-3 h-5 w-5 text-primary flex-shrink-0 mt-0.5" /> {}
                                                         <span className="flex-1">{item.title}</span>
                                                         {item.comingSoon && <span className="ml-2 text-xs bg-yellow-400 text-yellow-800 px-2 py-0.5 rounded-full self-start">Скоро</span>}
                                                     </CardTitle>
                                                     <CardDescription className="text-xs pt-1">{item.description}</CardDescription>
                                                 </CardHeader>
-                                                <CardContent className="flex-grow flex flex-col justify-end pt-0"> {/* Убрал верхний padding */}
+                                                <CardContent className="flex-grow flex flex-col justify-end pt-0"> {}
                                                     <Button asChild className="w-full" disabled={item.comingSoon}>
                                                         <Link to={item.link}>Перейти</Link>
                                                     </Button>

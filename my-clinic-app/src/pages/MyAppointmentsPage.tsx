@@ -1,7 +1,6 @@
-// my-clinic-app/src/pages/MyAppointmentsPage.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { format, parseISO, isFuture } from 'date-fns'; // parseISO здесь нужен для даты, но не для времени HH:MM
+import { format, parseISO, isFuture } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import axios from 'axios';
 
@@ -21,8 +20,8 @@ interface Appointment {
     doctor_name?: string;
     specialization_name?: string;
     date?: string;
-    start_time?: string; // Ожидается как "HH:MM"
-    end_time?: string;   // Ожидается как "HH:MM"
+    start_time?: string;
+    end_time?: string;
     status: string;
     created_at: string;
     doctor_schedule_id: number;
@@ -44,14 +43,14 @@ const getStatusVariant = (status: string): "default" | "secondary" | "destructiv
 };
 
 const MyAppointmentsPage: React.FC = () => {
-    const { user, isLoading: authIsLoading } = useAuth(); // Добавил authIsLoading
+    const { user, isLoading: authIsLoading } = useAuth();
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [cancellingId, setCancellingId] = useState<number | null>(null);
 
     const fetchAppointments = useCallback(async () => {
-        if (!user || user.role !== 'patient') { // Проверка добавлена, чтобы избежать вызова если роль не та
+        if (!user || user.role !== 'patient') {
             setIsLoading(false);
             return;
         }
@@ -59,7 +58,6 @@ const MyAppointmentsPage: React.FC = () => {
         setError(null);
         try {
             const response = await apiClient.get<Appointment[]>('/appointments/my/patient');
-            // Сортируем записи: сначала более новые даты, затем более раннее время для одной даты
             response.data.sort((a, b) => {
                 const dateA = a.date ? parseISO(a.date) : new Date(0);
                 const dateB = b.date ? parseISO(b.date) : new Date(0);
@@ -68,7 +66,7 @@ const MyAppointmentsPage: React.FC = () => {
 
                 const timeA = a.start_time ?? '00:00';
                 const timeB = b.start_time ?? '00:00';
-                return timeA.localeCompare(timeB); // Более раннее время выше
+                return timeA.localeCompare(timeB);
             });
             setAppointments(response.data || []);
         } catch (err) {
@@ -79,11 +77,11 @@ const MyAppointmentsPage: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [user]); // Добавил user в зависимости
+    }, [user]);
 
     useEffect(() => {
-        if (authIsLoading) { // Если контекст аутентификации еще грузится
-            setIsLoading(true); // Показываем общую загрузку страницы
+        if (authIsLoading) {
+            setIsLoading(true);
             return;
         }
 
@@ -92,11 +90,11 @@ const MyAppointmentsPage: React.FC = () => {
         } else if (!user) {
             setError("Пользователь не авторизован");
             setIsLoading(false);
-            setAppointments([]); // Очищаем записи, если пользователя нет
-        } else { // user.role !== 'patient'
+            setAppointments([]);
+        } else {
             setError("Доступ запрещен для вашей роли");
             setIsLoading(false);
-            setAppointments([]); // Очищаем записи
+            setAppointments([]);
         }
     }, [user, authIsLoading, fetchAppointments]);
 
@@ -109,7 +107,7 @@ const MyAppointmentsPage: React.FC = () => {
             if (response.status === 204) {
                 toast.success("Запись успешно отменена!");
                 await fetchAppointments();
-                setCancellingId(null); // Сбрасываем после успешного выполнения
+                setCancellingId(null);
                 return;
             } else {
                 console.warn("Неожиданный статус ответа при отмене записи:", response);
@@ -124,14 +122,12 @@ const MyAppointmentsPage: React.FC = () => {
             }
             toast.error(errorMessage);
         } finally {
-            // Убираем лоадер, только если это не был успешный выход из функции выше
-            if (cancellingId === appointmentId) { // Проверяем, что это все еще та же операция
+            if (cancellingId === appointmentId) {
                 setCancellingId(null);
             }
         }
     };
 
-    // Главный лоадер рендерится до проверки роли
     if (authIsLoading || (isLoading && appointments.length === 0 && !error)) {
         return <div className="container mx-auto p-4 text-center">Загрузка записей...</div>;
     }
@@ -140,7 +136,7 @@ const MyAppointmentsPage: React.FC = () => {
         return (
             <div className="container mx-auto p-4">
                 <Card>
-                    <CardContent className="pt-6"> {/* Добавил padding-top для контента карточки ошибки */}
+                    <CardContent className="pt-6"> {}
                         <p className="text-red-500 text-center">{error}</p>
                         <div className="mt-4 flex justify-center">
                             <Button variant="outline" asChild>
@@ -153,7 +149,6 @@ const MyAppointmentsPage: React.FC = () => {
         );
     }
 
-    // Если пользователь не пациент (и загрузка AuthContext завершена)
     if (!authIsLoading && user && user.role !== 'patient') {
         return (
             <div className="container mx-auto p-4">
@@ -178,7 +173,7 @@ const MyAppointmentsPage: React.FC = () => {
             <h1 className="text-2xl font-bold mb-6">Мои записи</h1>
 
             {appointments.length === 0 ? (
-                <Card> {/* Обернул сообщение в Card для единообразия */}
+                <Card> {}
                     <CardContent className="pt-6 text-center">
                         <p>У вас пока нет записей на прием.</p>
                         <div className="mt-4">
@@ -210,7 +205,7 @@ const MyAppointmentsPage: React.FC = () => {
                                     return (
                                         <TableRow key={appointment.id}>
                                             <TableCell>{appointment.date ? format(parseISO(appointment.date), 'dd.MM.yyyy', { locale: ru }) : 'N/A'}</TableCell>
-                                            {/* ИСПРАВЛЕНИЕ ЗДЕСЬ: Отображаем start_time напрямую */}
+                                            {}
                                             <TableCell>{appointment.start_time ?? 'N/A'}</TableCell>
                                             <TableCell>{appointment.doctor_name ?? 'N/A'}</TableCell>
                                             <TableCell>{appointment.specialization_name ?? 'N/A'}</TableCell>

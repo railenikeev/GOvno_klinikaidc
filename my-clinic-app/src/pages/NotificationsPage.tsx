@@ -1,23 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow, parseISO } from 'date-fns'; // Для относительного времени
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Check } from "lucide-react"; // Иконка для кнопки
+import { Check } from "lucide-react";
 
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card'; // <-- Исправленный импорт
+import { Card } from '@/components/ui/card';
 import { Toaster, toast } from "sonner";
-import { cn } from "@/lib/utils"; // Для условных классов
+import { cn } from "@/lib/utils";
 
-// Тип для уведомления (из ответа GET /notify)
 interface NotificationEntry {
     id: number;
     user_id: number;
     channel: string;
     message: string;
-    sent_at: string; // ISO строка даты
+    sent_at: string;
     is_read: boolean;
 }
 
@@ -29,7 +28,6 @@ const NotificationsPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [markingReadId, setMarkingReadId] = useState<number | null>(null);
 
-    // Функция загрузки уведомлений
     const fetchNotifications = useCallback(async () => {
         if (isLoading && notifications.length === 0) return;
 
@@ -47,7 +45,6 @@ const NotificationsPage: React.FC = () => {
         }
     }, [isLoading, notifications.length]);
 
-    // Загружаем уведомления при монтировании и при смене пользователя
     useEffect(() => {
         if (user) {
             fetchNotifications().catch(console.error);
@@ -57,7 +54,6 @@ const NotificationsPage: React.FC = () => {
         }
     }, [user, fetchNotifications, isLoading]);
 
-    // Функция для пометки уведомления как прочитанного
     const handleMarkAsRead = async (notificationId: number) => {
         if (markingReadId) return;
         setMarkingReadId(notificationId);
@@ -74,7 +70,6 @@ const NotificationsPage: React.FC = () => {
         }
     };
 
-    // --- Рендеринг ---
     if (isLoading && notifications.length === 0) {
         return <div className="container mx-auto p-4">Загрузка уведомлений...</div>;
     }

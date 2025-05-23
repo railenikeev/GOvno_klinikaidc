@@ -6,27 +6,23 @@ import { ru } from 'date-fns/locale';
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-// Удалили CardHeader, CardTitle
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Toaster, toast } from "sonner";
 
-// Тип для платежа (из ответа GET /payments)
 interface PaymentEntry {
     id: number;
     appointment_id: number;
     amount: number;
     payment_date?: string | null;
     payment_status: string;
-    // Дополнительная информация из связанных таблиц (полученная через JOIN в бэкенде)
     patient_id?: number | null;
     patient_name?: string | null;
     doctor_id?: number | null;
     doctor_name?: string | null;
 }
 
-// Функция для определения варианта Badge по статусу платежа
 const getPaymentStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
     switch (status?.toLowerCase()) {
         case 'paid': return 'default';
@@ -36,7 +32,6 @@ const getPaymentStatusVariant = (status: string): "default" | "secondary" | "des
     }
 };
 
-// Функция для форматирования суммы
 const formatCurrency = (amount: number | null | undefined): string => {
     if (amount == null) return 'N/A';
     return `${amount.toFixed(2)} руб.`;
@@ -49,7 +44,6 @@ const MyPaymentsPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Загрузка истории платежей
     useEffect(() => {
         if (!user || user.role !== 'patient') {
             setError("Доступ запрещен или пользователь не авторизован.");
@@ -76,7 +70,6 @@ const MyPaymentsPage: React.FC = () => {
 
     }, [user]);
 
-    // --- Рендеринг ---
     if (isLoading) {
         return <div className="container mx-auto p-4">Загрузка платежей...</div>;
     }
@@ -103,7 +96,7 @@ const MyPaymentsPage: React.FC = () => {
                                     <TableHead>Сумма</TableHead>
                                     <TableHead>Статус</TableHead>
                                     <TableHead>ID Записи</TableHead>
-                                    {/* Можно будет добавить колонку Врач/Дата приема, если доработать JOIN в бэкенде */}
+                                    {}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>

@@ -1,8 +1,8 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext'; // Предполагается, что useAuth есть
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Home, LogIn, UserPlus, UserCircle, LogOut, LayoutDashboard, Bell, CreditCard, CalendarPlus, CalendarCheck, FileText, ShieldCheck } from 'lucide-react'; // Иконки
+import { Home, LogIn, UserPlus, UserCircle, LogOut, LayoutDashboard, Bell, CreditCard, CalendarPlus, CalendarCheck, FileText, ShieldCheck } from 'lucide-react';
 
 const Header: React.FC = () => {
     const { user, logout } = useAuth();
@@ -14,18 +14,15 @@ const Header: React.FC = () => {
     };
 
     return (
-        // ВНЕШНИЙ ТЕГ <header> - отвечает за фон и позиционирование на всю ширину
         <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            {/* ВНУТРЕННИЙ DIV - отвечает за центрирование и ограничение ширины КОНТЕНТА хедера */}
-            <div className="container mx-auto flex h-14 max-w-screen-2xl items-center"> {/* max-w-screen-2xl можно настроить или убрать, если container уже настроен в tailwind.config.js */}
+            <div className="container mx-auto flex h-14 max-w-screen-2xl items-center">
                 <Link to="/" className="mr-6 flex items-center space-x-2">
                     <ShieldCheck className="h-6 w-6 text-primary" />
                     <span className="font-bold sm:inline-block text-primary">
                         Онлайн-Клиника
                     </span>
                 </Link>
-                <nav className="flex flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-6 overflow-x-auto whitespace-nowrap"> {/* Добавлены классы для адаптивности навигации */}
-                    {/* Ссылка "Главная" теперь ведет на /dashboard если пользователь авторизован, иначе на / */}
+                <nav className="flex flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-6 overflow-x-auto whitespace-nowrap">
                     <Link
                         to={user ? "/dashboard" : "/"}
                         className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
@@ -88,7 +85,7 @@ const Header: React.FC = () => {
 
                     {user && user.role === 'admin' && (
                         <Link
-                            to="/dashboard" // Дашборд администратора
+                            to="/dashboard"
                             className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
                         >
                             <LayoutDashboard className="inline-block h-4 w-4 mr-1 mb-0.5" />
@@ -97,7 +94,7 @@ const Header: React.FC = () => {
                     )}
                 </nav>
 
-                <div className="flex items-center justify-end space-x-2 ml-auto"> {/* Убрал flex-1, добавил ml-auto */}
+                <div className="flex items-center justify-end space-x-2 ml-auto">
                     {user ? (
                         <>
                             {user.role === 'patient' && (
@@ -109,7 +106,7 @@ const Header: React.FC = () => {
                                 </Link>
                             )}
                             <Link to="/profile">
-                                <Button variant="ghost" size="sm" className="px-2 sm:px-3"> {/* Адаптивные отступы */}
+                                <Button variant="ghost" size="sm" className="px-2 sm:px-3">
                                     <UserCircle className="h-5 w-5 sm:mr-2" />
                                     <span className="hidden sm:inline">{user.full_name || 'Профиль'}</span>
                                 </Button>

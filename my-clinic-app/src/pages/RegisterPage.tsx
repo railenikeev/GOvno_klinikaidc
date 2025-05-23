@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AxiosError } from 'axios';
-import { Toaster, toast } from "sonner"; // Правильный импорт
+import { Toaster, toast } from "sonner";
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import apiClient from '@/services/apiClient';
 
-// Схема валидации формы регистрации
 const registerSchema = z.object({
     fullName: z.string().min(2, { message: 'Имя должно содержать не менее 2 символов' }),
     email: z.string().email({ message: 'Введите корректный email' }),
@@ -24,7 +23,6 @@ const registerSchema = z.object({
     path: ["confirmPassword"],
 });
 
-// Тип данных формы
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
 const RegisterPage: React.FC = () => {
@@ -42,67 +40,55 @@ const RegisterPage: React.FC = () => {
         },
     });
 
-    // Обработчик отправки формы
     const onSubmit = async (data: RegisterFormValues) => {
-        setApiError(null); // Сбрасываем предыдущие ошибки API (использование void здесь нормально)
-        // Удален console.log, который мог вызывать предупреждение TS6133 (Void function return value is used)
+        setApiError(null);
 
-        // Подготовка данных для API
         const payload = {
             full_name: data.fullName,
             email: data.email,
             phone: data.phone,
             password: data.password,
-            role: 'patient', // Регистрируем только пациентов
+            role: 'patient',
             specialization_id: null
         };
 
-        let errorMessage = 'Произошла ошибка при регистрации. Попробуйте снова.'; // Объявляем заранее
+        let errorMessage = 'Произошла ошибка при регистрации. Попробуйте снова.';
 
         try {
             const response = await apiClient.post('/register', payload);
-            console.log('Register response:', response.data); // Лог ответа оставим для отладки
+            console.log('Register response:', response.data);
 
             if (response.status === 201 && response.data.message) {
-                // --- Успешная регистрация ---
                 toast.success(response.data.message + " Теперь вы можете войти.");
-                navigate('/login'); // Перенаправляем на страницу входа
-                return; // Выходим из функции после успешной обработки
+                navigate('/login');
+                return;
             } else {
-                // --- Неожиданный успешный ответ ---
                 console.error('Registration error: Invalid server response format', response);
                 errorMessage = "Неожиданный ответ от сервера при регистрации.";
-                // Не используем throw, обработаем ниже
             }
 
         } catch (error) {
-            // --- Ошибка API или сети ---
             console.error('Registration error:', error);
             if (error instanceof AxiosError && error.response) {
-                // Ошибка от бэкенда со статусом
-                if (error.response.status === 409) { // Conflict
+                if (error.response.status === 409) {
                     errorMessage = error.response.data?.error || 'Пользователь с таким email или телефоном уже существует.';
                 } else if (error.response.data && typeof error.response.data.error === 'string') {
-                    // Используем сообщение об ошибке от бэкенда
                     errorMessage = error.response.data.error;
                 } else {
-                    // Другая ошибка сервера (5xx и т.д.)
                     errorMessage = `Ошибка сервера (${error.response.status}). Попробуйте позже.`;
                 }
             } else {
-                // Ошибка сети или другая непредвиденная ошибка axios/javascript
                 errorMessage = 'Не удалось подключиться к серверу. Проверьте ваше соединение.';
             }
         }
 
-        // Установка и показ ошибки (если она произошла в try или catch)
         setApiError(errorMessage);
         toast.error(errorMessage);
     };
 
     return (
         <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 px-4 py-8">
-            {/* Toaster для sonner */}
+            {}
             <Toaster position="top-center" richColors closeButton />
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1 text-center">
@@ -112,7 +98,7 @@ const RegisterPage: React.FC = () => {
                 <CardContent>
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            {/* Поле Full Name */}
+                            {}
                             <FormField
                                 control={form.control}
                                 name="fullName"
@@ -126,7 +112,7 @@ const RegisterPage: React.FC = () => {
                                     </FormItem>
                                 )}
                             />
-                            {/* Поле Email */}
+                            {}
                             <FormField
                                 control={form.control}
                                 name="email"
@@ -140,7 +126,7 @@ const RegisterPage: React.FC = () => {
                                     </FormItem>
                                 )}
                             />
-                            {/* Поле Phone */}
+                            {}
                             <FormField
                                 control={form.control}
                                 name="phone"
@@ -154,7 +140,7 @@ const RegisterPage: React.FC = () => {
                                     </FormItem>
                                 )}
                             />
-                            {/* Поле Пароль */}
+                            {}
                             <FormField
                                 control={form.control}
                                 name="password"
@@ -168,7 +154,7 @@ const RegisterPage: React.FC = () => {
                                     </FormItem>
                                 )}
                             />
-                            {/* Поле Подтверждение Пароля */}
+                            {}
                             <FormField
                                 control={form.control}
                                 name="confirmPassword"
@@ -178,12 +164,11 @@ const RegisterPage: React.FC = () => {
                                         <FormControl>
                                             <Input type="password" placeholder="******" {...field} />
                                         </FormControl>
-                                        <FormMessage /> {/* Сюда попадет ошибка о несовпадении паролей */}
+                                        <FormMessage />
                                     </FormItem>
                                 )}
                             />
 
-                            {/* Отображение ошибки API */}
                             {apiError && (
                                 <p className="text-sm font-medium text-destructive">{apiError}</p>
                             )}

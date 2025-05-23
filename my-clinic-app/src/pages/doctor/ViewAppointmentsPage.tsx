@@ -2,20 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import axios from 'axios'; // Нужен для проверки типа ошибки
+import axios from 'axios';
 
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-// Удалили CardHeader, CardTitle
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-// Select не используется, убрали импорт
 import { Toaster, toast } from "sonner";
 
-// Используем тот же тип, что и на дашборде для врача
 interface AppointmentDoctorView {
     id: number;
     patient_id?: number;
@@ -34,7 +31,6 @@ const statusTranslations: { [key: string]: string } = {
     cancelled: 'Отменена',
 };
 
-// Варианты Badge для статуса
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
     switch (status?.toLowerCase()) {
         case 'completed': return 'default';
@@ -52,7 +48,6 @@ const ViewAppointmentsPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
 
-    // Загрузка записей для врача
     const fetchDoctorAppointments = useCallback(async () => {
         setIsLoading(true);
         setError(null);
@@ -66,7 +61,7 @@ const ViewAppointmentsPage: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, []); // useCallback
+    }, []);
 
     useEffect(() => {
         if (user && user.role === 'doctor') {
@@ -74,7 +69,6 @@ const ViewAppointmentsPage: React.FC = () => {
         }
     }, [user, fetchDoctorAppointments]);
 
-    // Функция обновления статуса
     const handleUpdateStatus = async (appointmentId: number, newStatus: 'completed' | 'cancelled') => {
         if (updatingStatusId) return;
         setUpdatingStatusId(appointmentId);
@@ -82,7 +76,7 @@ const ViewAppointmentsPage: React.FC = () => {
         try {
             await apiClient.patch(`/appointments/${appointmentId}/status`, { status: newStatus });
             toast.success(`Статус записи #<span class="math-inline">\{appointmentId\} изменен на "</span>{statusTranslations[newStatus.toLowerCase()] || newStatus}"`);
-            await fetchDoctorAppointments(); // Обновляем список
+            await fetchDoctorAppointments();
         } catch (error) {
             console.error(`Ошибка изменения статуса записи #${appointmentId}:`, error);
             let message = "Не удалось изменить статус записи.";
@@ -98,7 +92,6 @@ const ViewAppointmentsPage: React.FC = () => {
     };
 
 
-    // --- Рендеринг ---
     if (isLoading) {
         return <div className="container mx-auto p-4">Загрузка записей...</div>;
     }
@@ -146,7 +139,7 @@ const ViewAppointmentsPage: React.FC = () => {
                                                 {statusTranslations[appointment.status.toLowerCase()] || appointment.status}
                                             </Badge>
                                             <TableCell className="text-right space-x-2">
-                                                {/* Кнопка Завершить */}
+                                                {}
                                                 {canComplete && (
                                                     <AlertDialog>
                                                         <AlertDialogTrigger asChild>
@@ -173,9 +166,9 @@ const ViewAppointmentsPage: React.FC = () => {
                                                         </AlertDialogContent>
                                                     </AlertDialog>
                                                 )}
-                                                {/* Кнопка Открыть ЭМК */}
+                                                {}
                                                 <Button variant="outline" size="sm" asChild>
-                                                    {/* Используем patient_id для ссылки */}
+                                                    {}
                                                     <Link to={`/patient-record/${appointment.patient_id}`}>ЭМК</Link>
                                                 </Button>
                                             </TableCell>

@@ -1,4 +1,3 @@
-// my-clinic-app/src/pages/admin/ManageSpecializationsPage.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -35,15 +34,12 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
 import { Toaster, toast } from "sonner";
-// import { useAuth } from '@/contexts/AuthContext'; // Не нужен здесь напрямую, ProtectedRoute уже сработал
 
-// Тип для специализации
 interface Specialization {
     id: number;
     name: string;
 }
 
-// Схема для формы добавления/редактирования
 const specializationSchema = z.object({
     name: z.string().min(2, { message: 'Название должно быть не менее 2 символов' }).max(100, {message: 'Название не должно превышать 100 символов'}),
 });
@@ -59,7 +55,7 @@ const ManageSpecializationsPage: React.FC = () => {
     const [editingSpecialization, setEditingSpecialization] = useState<Specialization | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [deletingSpecialization, setDeletingSpecialization] = useState<Specialization | null>(null);
-    const [isSubmittingOperation, setIsSubmittingOperation] = useState<boolean>(false); // Для submit и delete
+    const [isSubmittingOperation, setIsSubmittingOperation] = useState<boolean>(false);
 
     const form = useForm<SpecializationFormValues>({
         resolver: zodResolver(specializationSchema),
@@ -132,9 +128,8 @@ const ManageSpecializationsPage: React.FC = () => {
                 toast.success(successMessage);
                 setIsAddEditDialogOpen(false);
                 setEditingSpecialization(null);
-                await fetchSpecializations(); // Обновляем список
+                await fetchSpecializations();
             } else {
-                // На случай если бэкенд вернет 2xx, но не 200/201 с данными
                 throw new Error(response.data?.error || `Неожиданный статус: ${response.status}`);
             }
         } catch (error: any) {
@@ -142,7 +137,7 @@ const ManageSpecializationsPage: React.FC = () => {
             let formErrorMessage = errorMessageToast;
             if (axios.isAxiosError(error) && error.response) {
                 formErrorMessage = error.response.data?.error || errorMessageToast;
-                if (error.response.status === 409) { // Конфликт имени
+                if (error.response.status === 409) {
                     form.setError("name", { type: "manual", message: formErrorMessage });
                 } else {
                     toast.error(formErrorMessage);
@@ -161,14 +156,14 @@ const ManageSpecializationsPage: React.FC = () => {
     const handleDeleteConfirm = async () => {
         if (!deletingSpecialization) return;
         setIsSubmittingOperation(true);
-        setIsDeleteDialogOpen(false); // Закрываем диалог сразу
+        setIsDeleteDialogOpen(false);
 
         let errorMessage = "Не удалось удалить специализацию.";
 
         try {
             await apiClient.delete(`/specializations/${deletingSpecialization.id}`);
             toast.success(`Специализация "${deletingSpecialization.name}" удалена.`);
-            await fetchSpecializations(); // Обновляем список
+            await fetchSpecializations();
         } catch (error: any) {
             console.error("Ошибка удаления специализации:", error);
             if (axios.isAxiosError(error) && error.response) {
@@ -187,7 +182,7 @@ const ManageSpecializationsPage: React.FC = () => {
     };
 
     const renderTableContent = () => {
-        if (isLoading) { // Показываем только если это первоначальная загрузка и нет ошибки
+        if (isLoading) {
             return (
                 <TableRow>
                     <TableCell colSpan={3} className="h-24 text-center">Загрузка специализаций...</TableCell>
@@ -233,8 +228,8 @@ const ManageSpecializationsPage: React.FC = () => {
                                 <Trash2 className="h-4 w-4" /> <span className="sr-only">Удалить</span>
                             </Button>
                         </AlertDialogTrigger>
-                        {/* Содержимое диалога рендерится только если он открыт для этого элемента */}
-                        {/* Это гарантирует, что правильный deletingSpecialization используется */}
+                        {}
+                        {}
                         {deletingSpecialization?.id === spec.id && (
                             <AlertDialogContent>
                                 <AlertDialogHeader>
@@ -266,7 +261,7 @@ const ManageSpecializationsPage: React.FC = () => {
                 <h1 className="text-2xl font-bold">Управление Специализациями</h1>
                 <Dialog open={isAddEditDialogOpen} onOpenChange={setIsAddEditDialogOpen}>
                     <DialogTrigger asChild>
-                        <Button onClick={handleAdd} disabled={isLoading}> {/* Блокируем, пока идет основная загрузка */}
+                        <Button onClick={handleAdd} disabled={isLoading}> {}
                             <PlusCircle className="mr-2 h-4 w-4" /> Добавить
                         </Button>
                     </DialogTrigger>

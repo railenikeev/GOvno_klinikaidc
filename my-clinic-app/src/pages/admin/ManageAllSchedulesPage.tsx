@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { format, parseISO } from 'date-fns'; // Убедитесь, что импорт format и parseISO есть
-import { ru } from 'date-fns/locale'; // Убедитесь, что импорт локали есть
+import { format, parseISO } from 'date-fns';
+import { ru } from 'date-fns/locale';
 import { Trash2 } from 'lucide-react';
-//import axios from 'axios';
 
 import apiClient from '@/services/apiClient';
 import { Button } from '@/components/ui/button';
@@ -217,7 +216,7 @@ const ManageAllSchedulesPage: React.FC = () => {
                                 {Object.entries(groupedSlots).map(([date, slotsInDate]) => (
                                     <div key={date}>
                                         <h3 className="font-semibold mb-2 text-lg">
-                                            {/* ИСПРАВЛЕНИЕ ЗДЕСЬ */}
+                                            {}
                                             {format(parseISO(date), 'd MMMM yyyy, EEEE', { locale: ru })}
                                         </h3>
                                         <div className="flex flex-wrap items-center gap-2">
@@ -274,7 +273,8 @@ const ManageAllSchedulesPage: React.FC = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel
-                                    onClick={() => { /* onOpenChange уже должен обработать */ }}
+                                    onClick={() => {
+                                    }}
                                     disabled={isDeleting}
                                 >
                                     Отмена

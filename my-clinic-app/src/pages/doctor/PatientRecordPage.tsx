@@ -353,17 +353,13 @@ const PatientRecordPage: React.FC = () => {
                     {!isLoading && records.length > 0 && (
                         <Accordion type="single" collapsible className="w-full">
                             {records.map((record) => {
-                                // Добавляем console.log для отладки значения record.visit_date
-                                // console.log("Record visit_date for formatting:", record.visit_date, "Type:", typeof record.visit_date);
                                 let formattedDate = 'Дата не указана';
                                 try {
                                     if (record.visit_date) {
-                                        // Используем 'PPPP' для локализованного длинного формата даты с днем недели
                                         formattedDate = format(parseISO(record.visit_date), 'PPPP', { locale: ru });
                                     }
                                 } catch (e) {
                                     console.error("Error formatting date:", record.visit_date, e);
-                                    // formattedDate останется 'Дата не указана'
                                 }
                                 return (
                                     <AccordionItem value={`item-${record.id}`} key={record.id}>

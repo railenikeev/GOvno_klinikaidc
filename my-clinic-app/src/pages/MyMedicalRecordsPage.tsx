@@ -6,21 +6,20 @@ import { ru } from 'date-fns/locale';
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // Card для общего контейнера
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"; // Компоненты аккордеона
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Toaster, toast } from "sonner";
 
-// Тип для записей медкарты (из ответа GET /records)
 interface MedicalRecordEntry {
     id: number;
     patient_id: number;
     doctor_id: number;
     appointment_id: number;
-    diagnosis?: string | null; // Может быть null
-    treatment?: string | null; // Может быть null
-    visit_date: string; // Формат YYYY-MM-DD
-    patient_name?: string | null; // Добавлено JOIN'ом в бэкенде
-    doctor_name?: string | null; // Добавлено JOIN'ом в бэкенде
+    diagnosis?: string | null;
+    treatment?: string | null;
+    visit_date: string;
+    patient_name?: string | null;
+    doctor_name?: string | null;
 }
 
 
@@ -30,7 +29,6 @@ const MyMedicalRecordsPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Загрузка записей медкарты
     useEffect(() => {
         if (!user || user.role !== 'patient') {
             setError("Доступ запрещен или пользователь не авторизован.");
@@ -42,7 +40,6 @@ const MyMedicalRecordsPage: React.FC = () => {
             setIsLoading(true);
             setError(null);
             try {
-                // Бэкенд сам фильтрует по patient_id из заголовка X-User-ID
                 const response = await apiClient.get<MedicalRecordEntry[]>('/medical_records');
                 setRecords(response.data);
             } catch (err) {
@@ -58,7 +55,6 @@ const MyMedicalRecordsPage: React.FC = () => {
 
     }, [user]);
 
-    // --- Рендеринг ---
     if (isLoading) {
         return <div className="container mx-auto p-4">Загрузка медкарты...</div>;
     }

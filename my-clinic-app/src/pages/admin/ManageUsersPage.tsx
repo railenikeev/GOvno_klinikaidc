@@ -1,4 +1,3 @@
-// my-clinic-app/src/pages/admin/ManageUsersPage.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -52,7 +51,6 @@ interface UserAdminView {
     specialization_name?: string | null;
 }
 
-// Объект для перевода ролей
 const roleTranslations: { [key: string]: string } = {
     patient: 'Пациент',
     doctor: 'Врач',
@@ -67,7 +65,7 @@ const userEditSchema = z.object({
         return data.specializationId && data.specializationId !== "";
     }
     return true;
-}, { message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.`, path: ["specializationId"] }); // Используем перевод
+}, { message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.`, path: ["specializationId"] });
 
 type UserEditFormValues = z.infer<typeof userEditSchema>;
 
@@ -151,7 +149,7 @@ const ManageUsersPage: React.FC = () => {
                     return;
                 }
             } else {
-                editForm.setError("specializationId", { type: "manual", message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.` }); // Используем перевод
+                editForm.setError("specializationId", { type: "manual", message: `Для роли '${roleTranslations.doctor || 'Врач'}' необходимо выбрать специализацию.` });
                 setIsSubmittingOperation(false);
                 return;
             }
